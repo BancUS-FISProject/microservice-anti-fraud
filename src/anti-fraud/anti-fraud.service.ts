@@ -1,43 +1,77 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ConflictException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
+import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 
 @Injectable()
 export class AntiFraudService {
 
-  checkTransactionRisk(data: CheckTransactionDto): boolean {
+  constructor(
+    @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>
+  ) {}
+
+  async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
     if (data.amount > 1000) {
-      return true;
+      try {
+        await this.alertModel.create({
+          userId: data.userId,
+          transactionId: data.transactionId,
+          source: 'SYSTEM_DETECTED',
+          type: 'HIGH_AMOUNT',
+          reason: `Transaction amount (${data.amount}) exceeds limit`,
+          status: 'PENDING'
+        });
+      } catch (error) {
+        if (error.code !== 11000) {
+          // Alerta ya existente, no hacer nada.
+          throw error;
+        }
+      }
+      return true; // Bloqueamos la transacción
     }
+    
     return false;
   }
 
-  getAlertsForUser(userId: number) {
-    return [
-      {
-        id: 1,
-        userId: userId,
-        type: 'SUSPICIOUS_DESTINATION',
-        message: 'Attempted transfer to a flagged offshore account',
-        date: new Date().toISOString()
-      },
-      {
-        id: 2,
-        userId: userId,
-        type: 'HIGH_VELOCITY',
-        message: 'Multiple transactions in a short time frame',
-        date: new Date(Date.now() - 86400000).toISOString()
-      }
-    ];
+  async getAlertsForUser(userId: number) {
+    return this.alertModel.find({ userId: userId }).exec();
   }
 
-  reportFraud(movementId: number, userId: number, reason: string) {
-    return {
-      status: 'RECEIVED', 
-      reportId: 1, 
-      linkedTransactionId: movementId,
-      reporterId: userId,
-      reportDate: new Date().toISOString(),
-      userNote: reason
-    };
+  async reportFraud(movementId: number, userId: number, reason: string) {    
+    try {
+      const newReport = await this.alertModel.create({
+        userId: userId,
+        transactionId: movementId,
+        source: 'USER_REPORTED',
+        type: 'USER_CLAIM',
+        reason: reason,
+        status: 'PENDING'
+      });
+
+      return {
+        status: 'RECEIVED',
+        alertId: newReport._id,
+        linkedTransactionId: newReport.transactionId,
+        receivedAt: newReport['createdAt']
+      };
+
+    } catch (error) {
+        // Error 11000 = Clave duplicada
+        if (error.code === 11000) {        
+        const existingReport = await this.alertModel.findOne({ userId, transactionId: movementId });
+        // Typescript necesita comprobar que existingReport no es null
+        if (!existingReport) {
+          throw new ConflictException('Report already exists but could not be retrieved');
+        }
+        return {
+          status: 'ALREADY_RECEIVED',
+          alertId: existingReport._id,
+          linkedTransactionId: existingReport.transactionId,
+          receivedAt: existingReport['createdAt'] // TypeScript ya sabe que no es null aquí
+        };
+      }
+      throw error;
+    }
   }
 }
