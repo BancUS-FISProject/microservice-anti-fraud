@@ -11,26 +11,26 @@ export class AntiFraudService {
     return false;
   }
 
-  getAlertsForUser(userId: string) {
+  getAlertsForUser(userId: number) {
     return [
       {
-        id: 'alert-123',
+        id: 1,
         userId: userId,
-        type: 'SUSPICIOUS_LOCATION',
-        message: 'Intento de acceso desde Rusia',
+        type: 'SUSPICIOUS_DESTINATION',
+        message: 'Attempted transfer to a flagged offshore account',
         date: new Date().toISOString()
       },
       {
-        id: 'alert-456',
+        id: 2,
         userId: userId,
         type: 'HIGH_VELOCITY',
-        message: '3 transacciones en menos de 10 segundos',
+        message: 'Multiple transactions in a short time frame',
         date: new Date(Date.now() - 86400000).toISOString()
       }
     ];
   }
 
-  reportFraud(movementId: string, userId: string, reason: string) {
+  reportFraud(movementId: number, userId: number, reason: string) {
     return {
       status: 'RECEIVED', 
       reportId: 1, 
