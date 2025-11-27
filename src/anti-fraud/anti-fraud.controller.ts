@@ -42,16 +42,11 @@ export class AntiFraudController {
   @ApiResponse({ status: 200, description: 'Transaction approved.' })
   @ApiResponse({ status: 403, description: 'Transaction rejected due to high risk.' })
   @HttpCode(HttpStatus.OK)
-  checkTransaction(@Body() data: CheckTransactionDto) {
-    const isRisky = this.antiFraudService.checkTransactionRisk(data);
+  async checkTransaction(@Body() data: CheckTransactionDto) {
+    const isRisky = await this.antiFraudService.checkTransactionRisk(data);
     if (isRisky) {
-      // Si hay riesgo, lanzamos error 403 Forbidden
-      throw new ForbiddenException({
-        message: 'Transaction rejected due to high risk',
-        code: 'HIGH_RISK'
-      });
+      throw new ForbiddenException({ message: 'Transaction rejected', code: 'HIGH_RISK' });
     }
-
     return { status: 'APPROVED', message: 'Transaction seems safe' };
   }
 
@@ -66,7 +61,7 @@ export class AntiFraudController {
   })
   @ApiResponse({ status: 200, description: 'List of alerts retrieved successfully.' })
   @ApiResponse({ status: 400, description: 'Invalid User ID format.' })
-  getUserAlerts(@Param('userId', ParseIntPipe) userId: number) {
+  async getUserAlerts(@Param('userId', ParseIntPipe) userId: number) {
     return this.antiFraudService.getAlertsForUser(userId);
   }
 
@@ -81,10 +76,10 @@ export class AntiFraudController {
   @ApiResponse({ status: 202, description: 'Fraud report received and under review.' })
   @ApiResponse({ status: 400, description: 'Invalid input data.' })
   @HttpCode(HttpStatus.ACCEPTED)
-  reportMovement(
+  async reportMovement(
     @Param('movementId', ParseIntPipe) movementId: number, 
     @Body() body: CreateFraudReportDto
   ) {
-    return this.antiFraudService.reportFraud(movementId, body.userId, body.reason);
+    return await this.antiFraudService.reportFraud(movementId, body.userId, body.reason);
   }
 }
