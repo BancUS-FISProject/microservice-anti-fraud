@@ -2,11 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 
 
 export class CheckTransactionDto {
-  @ApiProperty({ example: 'tx-12345', description: 'Unique transaction ID' })
-  transactionId: string;
+  @ApiProperty({ example: 30, description: 'Unique transaction ID' })
+  transactionId: number;
 
-  @ApiProperty({ example: 'user-007', description: 'User ID performing the transaction' })
-  userId: string;
+  @ApiProperty({ example: 1, description: 'User ID performing the transaction' })
+  userId: number;
 
   @ApiProperty({ example: 1500.50, description: 'Transaction amount' })
   amount: number;

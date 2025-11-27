@@ -2,10 +2,10 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateFraudReportDto {
 @ApiProperty({ 
-    example: 'user-victim-001', 
+    example: 2, 
     description: 'ID of the user reporting the fraud' 
   })
-  userId: string;
+  userId: number;
 
   @ApiProperty({ 
     example: 'I do not recognize this charge', 

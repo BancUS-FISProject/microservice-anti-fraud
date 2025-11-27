@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, HttpCode, HttpStatus, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, HttpCode, HttpStatus, ForbiddenException, ParseIntPipe } from '@nestjs/common';
 import { AntiFraudService } from './anti-fraud.service';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { CreateFraudReportDto } from './dto/create-fraud-report.dto';
@@ -19,8 +19,8 @@ export class AntiFraudController {
         summary: 'Example: Safe Transaction',
         description: 'Low amount transaction between known accounts.',
         value: {
-          transactionId: 'tx-safe-001',
-          userId: 'user-good',
+          transactionId: 30,
+          userId: 3,
           amount: 500,
           origin: 'ES-ACCOUNT-111',
           destination: 'ES-ACCOUNT-222'
@@ -30,8 +30,8 @@ export class AntiFraudController {
         summary: 'Example: High Risk',
         description: 'High amount transaction to a suspicious destination.',
         value: {
-          transactionId: 'tx-risky-999',
-          userId: 'user-hacker',
+          transactionId: 35,
+          userId: 10,
           amount: 5000,
           origin: 'ES-ACCOUNT-666',
           destination: 'KY-OFFSHORE-999'
@@ -61,12 +61,12 @@ export class AntiFraudController {
   @ApiOperation({ summary: 'Retrieve fraud alert history for an user' })
   @ApiParam({ 
     name: 'userId', 
-    example: 'user-pepe-123', 
+    example: 1, 
     description: 'Target User ID'
   })
   @ApiResponse({ status: 200, description: 'List of alerts retrieved successfully.' })
   @ApiResponse({ status: 400, description: 'Invalid User ID format.' })
-  getUserAlerts(@Param('userId') userId: string) {
+  getUserAlerts(@Param('userId', ParseIntPipe) userId: number) {
     return this.antiFraudService.getAlertsForUser(userId);
   }
 
@@ -75,14 +75,14 @@ export class AntiFraudController {
   @ApiOperation({ summary: 'Report a transaction as fraudulent' })
   @ApiParam({ 
     name: 'movementId', 
-    example: 'tx-9999-fraud', 
+    example: 40, 
     description: 'ID of the suspicious transaction'
   })
   @ApiResponse({ status: 202, description: 'Fraud report received and under review.' })
   @ApiResponse({ status: 400, description: 'Invalid input data.' })
   @HttpCode(HttpStatus.ACCEPTED)
   reportMovement(
-    @Param('movementId') movementId: string, 
+    @Param('movementId', ParseIntPipe) movementId: number, 
     @Body() body: CreateFraudReportDto
   ) {
     return this.antiFraudService.reportFraud(movementId, body.userId, body.reason);
