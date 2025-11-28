@@ -1,0 +1,40 @@
+name: Anti-Fraud CI Pipeline
+
+on:
+  push:
+    branches: [ "develop", "master" ]
+  pull_request:
+    branches: [ "develop", "master" ]
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Lint Code
+        run: npm run lint
+
+      # - name: Unit Tests
+      #   # Commented out until tests are implemented with Jest.
+      #   run: npm run test
+
+  docker-validation:
+    needs: code-quality # Waits for the previous job to finish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Docker Build Check
+        run: docker build . --file Dockerfile --tag antifraud-app:${{ github.sha }} --no-cache
