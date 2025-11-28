@@ -22,6 +22,8 @@ export class FraudAlert {
 
   @Prop({ default: 'PENDING' })
   status: 'PENDING' | 'REVIEWED' | 'CONFIRMED' | 'FALSE_POSITIVE';
+
+  createdAt?: Date; // Para que el lindt no de error.
 }
 
 export const FraudAlertSchema = SchemaFactory.createForClass(FraudAlert);

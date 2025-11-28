@@ -12,12 +12,11 @@ async function bootstrap() {
     .addTag('Anti-Fraud')
     .build();
 
-  const document = SwaggerModule.createDocument(app, config,  {
+  const document = SwaggerModule.createDocument(app, config, {
     deepScanRoutes: true, // Incluye el prefijo de versión en los paths de Swagger
   });
   SwaggerModule.setup('api', app, document); // La documentacion estara en /api
 
-
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+void bootstrap();

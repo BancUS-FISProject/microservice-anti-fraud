@@ -7,7 +7,7 @@ import { FraudAlert, FraudAlertSchema } from './schemas/fraud-alert.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: FraudAlert.name, schema: FraudAlertSchema }
+      { name: FraudAlert.name, schema: FraudAlertSchema },
     ]),
   ],
   controllers: [AntiFraudController],
