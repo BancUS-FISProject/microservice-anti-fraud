@@ -6,9 +6,8 @@ import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 
 @Injectable()
 export class AntiFraudService {
-
   constructor(
-    @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>
+    @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
   ) {}
 
   async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
@@ -20,17 +19,18 @@ export class AntiFraudService {
           source: 'SYSTEM_DETECTED',
           type: 'HIGH_AMOUNT',
           reason: `Transaction amount (${data.amount}) exceeds limit`,
-          status: 'PENDING'
+          status: 'PENDING',
         });
       } catch (error) {
-        if (error.code !== 11000) {
+        const mongoError = error as unknown as { code: number };
+        if (mongoError.code === 11000) {
           // Alerta ya existente, no hacer nada.
           throw error;
         }
       }
       return true; // Bloqueamos la transacción
     }
-    
+
     return false;
   }
 
@@ -38,7 +38,7 @@ export class AntiFraudService {
     return this.alertModel.find({ userId: userId }).exec();
   }
 
-  async reportFraud(movementId: number, userId: number, reason: string) {    
+  async reportFraud(movementId: number, userId: number, reason: string) {
     try {
       const newReport = await this.alertModel.create({
         userId: userId,
@@ -46,29 +46,34 @@ export class AntiFraudService {
         source: 'USER_REPORTED',
         type: 'USER_CLAIM',
         reason: reason,
-        status: 'PENDING'
+        status: 'PENDING',
       });
 
       return {
         status: 'RECEIVED',
         alertId: newReport._id,
         linkedTransactionId: newReport.transactionId,
-        receivedAt: newReport['createdAt']
+        receivedAt: newReport.createdAt,
       };
-
     } catch (error) {
-        // Error 11000 = Clave duplicada
-        if (error.code === 11000) {        
-        const existingReport = await this.alertModel.findOne({ userId, transactionId: movementId });
+      const mongoError = error as unknown as { code: number };
+      // Error 11000 = Clave duplicada
+      if (mongoError.code === 11000) {
+        const existingReport = await this.alertModel.findOne({
+          userId,
+          transactionId: movementId,
+        });
         // Typescript necesita comprobar que existingReport no es null
         if (!existingReport) {
-          throw new ConflictException('Report already exists but could not be retrieved');
+          throw new ConflictException(
+            'Report already exists but could not be retrieved',
+          );
         }
         return {
           status: 'ALREADY_RECEIVED',
           alertId: existingReport._id,
           linkedTransactionId: existingReport.transactionId,
-          receivedAt: existingReport['createdAt'] // TypeScript ya sabe que no es null aquí
+          receivedAt: existingReport.createdAt,
         };
       }
       throw error;
