@@ -13,11 +13,10 @@ async function bootstrap() {
       urls: [process.env.RABBITMQ_URL || 'amqp://localhost:5672'],
       queue: 'antifraud_queue', // Nombre de la cola de este microservicio, donde se conectaran el resto de microservicios.
       queueOptions: {
-        durable: false
+        durable: false,
       },
     },
   });
-
 
   const config = new DocumentBuilder()
     .setTitle('Anti-Fraud Microservice')
@@ -26,7 +25,7 @@ async function bootstrap() {
     .addTag('Anti-Fraud')
     .build();
 
-  const document = SwaggerModule.createDocument(app, config,  {
+  const document = SwaggerModule.createDocument(app, config, {
     deepScanRoutes: true, // Incluye el prefijo de versión en los paths de Swagger
   });
   SwaggerModule.setup('api', app, document); // La documentacion estara en /api
