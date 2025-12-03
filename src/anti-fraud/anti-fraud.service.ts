@@ -1,82 +1,119 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { ClientProxy } from '@nestjs/microservices';
+import { lastValueFrom } from 'rxjs';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 
 @Injectable()
 export class AntiFraudService {
+
   constructor(
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+    @Inject('BANK_STATEMENTS_SERVICE') private readonly bankStatementsClient: ClientProxy
   ) {}
 
-  async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
-    if (data.amount > 1000) {
-      try {
-        await this.alertModel.create({
-          userId: data.userId,
-          transactionId: data.transactionId,
-          source: 'SYSTEM_DETECTED',
-          type: 'HIGH_AMOUNT',
-          reason: `Transaction amount (${data.amount}) exceeds limit`,
-          status: 'PENDING',
-        });
-      } catch (error) {
-        const mongoError = error as unknown as { code: number };
-        if (mongoError.code === 11000) {
-          // Alerta ya existente, no hacer nada.
-          throw error;
-        }
-      }
-      return true; // Bloqueamos la transacción
-    }
 
+  async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
+    const isFraud = data.amount > 2000;
+    if (isFraud) {
+      await this.createAlert(data, 'Fraud attempt', 'Transaction denied.');
+      await this.blockUserAccount(data.userId, data.transactionId, 'Sending account block order');
+      return true;
+    }
     return false;
+  }
+
+
+  async checkTransactionHistory(data: CheckTransactionDto): Promise<void> {
+    try {
+      const history = await this.fetchUserHistory(data.userId);
+      // B. Analizar patrones
+      const isSuspicious = this.analyzeHistoryPatterns(history);
+      if (isSuspicious) {
+        await this.createAlert(data, 'FRAUDULENT_BEHAVIOR', 'Anomalous transaction history detected');
+        await this.blockUserAccount(data.userId, data.transactionId, 'History Pattern Anomaly');
+      } else {
+      }
+    } catch (error) {
+      
+    }
+  }
+
+
+
+  private async fetchUserHistory(userId: number): Promise<any[]> {
+    // .send(patrón, datos) -> Envía un mensaje y espera una respuesta.
+    // El servicio de historial debe tener un @MessagePattern('get_history')
+    return await lastValueFrom(
+      this.bankStatementsClient.send({ cmd: 'get_history' }, { userId })
+    );
+  }
+
+  
+  private analyzeHistoryPatterns(history: any[]): boolean {
+    if (history && Array.isArray(history) && history.length > 10) {
+      return true;
+    }
+    return false;
+  }
+
+
+  private async blockUserAccount(userId: number, reasonTxId: number, reasonMsg: string): Promise<void> {
+    try {
+      const accountsServiceUrl = this.configService.get<string>('ACCOUNTS_MS_URL') || 'http://localhost:3002';
+      await lastValueFrom(
+        this.httpService.patch(`${accountsServiceUrl}/v1/accounts/${userId}/block`, {
+          reason: `Anti-Fraud System: ${reasonMsg}`,
+          referenceTransactionId: reasonTxId
+        })
+      );
+    } catch (error) {
+    }
+  }
+
+
+  private async sendNotification(userId: number, message: string, type: string): Promise<void> {
+    try {
+      const notificationsServiceUrl = this.configService.get<string>('NOTIFICATIONS_MS_URL') || 'http://localhost:3004';
+      await lastValueFrom(
+        this.httpService.post(`${notificationsServiceUrl}/v1/notifications`, {
+          userId: userId,
+          message: message,
+          type: type,
+          source: 'ANTI_FRAUD_SERVICE'
+        })
+      );
+    } catch (error) {
+    }
+  }
+
+
+
+  private async createAlert(data: CheckTransactionDto, type: string, reason: string): Promise<void> {
+    try {
+      await this.alertModel.create({
+        userId: data.userId,
+        transactionId: data.transactionId,
+        source: 'SYSTEM_DETECTED',
+        type: type,
+        reason: reason,
+        status: 'PENDING'
+      });
+
+      await this.sendNotification(data.userId, `Fraud Alert: ${reason}`, type);
+
+    } catch (error) {
+    }
   }
 
   async getAlertsForUser(userId: number) {
     return this.alertModel.find({ userId: userId }).exec();
   }
 
-  async reportFraud(movementId: number, userId: number, reason: string) {
-    try {
-      const newReport = await this.alertModel.create({
-        userId: userId,
-        transactionId: movementId,
-        source: 'USER_REPORTED',
-        type: 'USER_CLAIM',
-        reason: reason,
-        status: 'PENDING',
-      });
-
-      return {
-        status: 'RECEIVED',
-        alertId: newReport._id,
-        linkedTransactionId: newReport.transactionId,
-        receivedAt: newReport.createdAt,
-      };
-    } catch (error) {
-      const mongoError = error as unknown as { code: number };
-      // Error 11000 = Clave duplicada
-      if (mongoError.code === 11000) {
-        const existingReport = await this.alertModel.findOne({
-          userId,
-          transactionId: movementId,
-        });
-        // Typescript necesita comprobar que existingReport no es null
-        if (!existingReport) {
-          throw new ConflictException(
-            'Report already exists but could not be retrieved',
-          );
-        }
-        return {
-          status: 'ALREADY_RECEIVED',
-          alertId: existingReport._id,
-          linkedTransactionId: existingReport.transactionId,
-          receivedAt: existingReport.createdAt,
-        };
-      }
-      throw error;
-    }
-  }
 }

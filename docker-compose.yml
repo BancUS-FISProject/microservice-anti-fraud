@@ -16,17 +16,39 @@ services:
       retries: 5
       start_period: 5s # Dale 5s de gracia al inicio para arrancar
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"   # Puerto de comunicación (Donde se conectan los microservicios)
+      - "15672:15672" # Puerto del Panel Web de Administración
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s # RabbitMQ tarda un poco más en arrancar que Mongo
+
 
   app-antifraude:
     build: .
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - MONGO_URI=${MONGO_DOCKER_URI}
+      
+        # Formato: amqp://usuario:contraseña@nombre_servicio_docker:puerto
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
     depends_on:
       mongo-db:
         # No arranques hasta que mongo esté "Healthy", es decir, arrancado y listo.
         condition: service_healthy
+
+      rabbitmq:
+        condition: service_healthy
+
     restart: on-failure
 
 

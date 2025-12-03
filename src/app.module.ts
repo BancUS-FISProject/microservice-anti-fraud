@@ -4,10 +4,12 @@ import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AntiFraudModule } from './anti-fraud/anti-fraud.module';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
     AntiFraudModule,
+    HttpModule,
     ConfigModule.forRoot({
       isGlobal: true,
     }),
