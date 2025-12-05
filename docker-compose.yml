@@ -8,6 +8,7 @@ services:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
+    command: ["mongod", "--quiet", "--logpath", "/dev/null"]
     healthcheck:
       # Comando que Docker ejecutará dentro del contenedor para ver si está vivo
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
