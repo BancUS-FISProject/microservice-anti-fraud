@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
@@ -10,6 +10,8 @@ import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 
 @Injectable()
 export class AntiFraudService {
+  private readonly logger = new Logger(AntiFraudService.name);
+
   constructor(
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
     private readonly httpService: HttpService,
@@ -48,9 +50,12 @@ export class AntiFraudService {
           data.transactionId,
           'History Pattern Anomaly',
         );
-      } else {
       }
-    } catch (error) {}
+    } catch (error) {
+      const errMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed during history check: ${errMessage}`);
+    }
   }
 
   private async fetchUserHistory(userId: number): Promise<any[]> {
@@ -86,7 +91,9 @@ export class AntiFraudService {
           },
         ),
       );
-    } catch (error) {}
+    } catch (error) {
+      this.logger.error(`FAILED to block user ${userId}`, error);
+    }
   }
 
   private async sendNotification(
@@ -106,7 +113,12 @@ export class AntiFraudService {
           source: 'ANTI_FRAUD_SERVICE',
         }),
       );
-    } catch (error) {}
+    } catch (error) {
+      this.logger.error(
+        `FAILED to send notification with message ${message} and error`,
+        error,
+      );
+    }
   }
 
   private async createAlert(
@@ -125,7 +137,12 @@ export class AntiFraudService {
       });
 
       await this.sendNotification(data.userId, `Fraud Alert: ${reason}`, type);
-    } catch (error) {}
+    } catch (error) {
+      this.logger.error(
+        `FAILED to create alert with reason ${reason} and error`,
+        error,
+      );
+    }
   }
 
   async getAlertsForUser(userId: number) {
