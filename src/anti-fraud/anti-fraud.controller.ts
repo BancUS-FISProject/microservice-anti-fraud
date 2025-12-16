@@ -77,7 +77,7 @@ export class AntiFraudController {
   @Get('users/:userId/fraud-alerts')
   @ApiOperation({
     summary:
-      'Retrieve transaction history to analyze possible past risk transactions',
+      'Retrieves transaction history alerts for a specific user by their ID.',
   })
   @ApiParam({
     name: 'userId',
