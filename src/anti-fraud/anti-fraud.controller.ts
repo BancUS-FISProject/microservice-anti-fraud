@@ -38,6 +38,7 @@ export class AntiFraudController {
           amount: 500,
           origin: 'ES-111',
           destination: 'ES-222',
+          pan: 4111111111111111,
         },
       },
       fraudCase: {
@@ -48,6 +49,7 @@ export class AntiFraudController {
           amount: 2500,
           origin: 'ES-666',
           destination: 'KY-OFFSHORE-999',
+          pan: 4111111111111119,
         },
       },
     },

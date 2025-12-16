@@ -24,11 +24,7 @@ export class AntiFraudService {
     const isFraud = data.amount > 2000;
     if (isFraud) {
       await this.createAlert(data, 'Fraud attempt', 'Transaction denied.');
-      await this.blockUserAccount(
-        data.userId,
-        data.transactionId,
-        'Sending account block order',
-      );
+      await this.blockUserAccount(data.pan, 'Fraudulent transaction detected');
       return true;
     }
     return false;
@@ -37,7 +33,6 @@ export class AntiFraudService {
   async checkTransactionHistory(data: CheckTransactionDto): Promise<void> {
     try {
       const history = await this.fetchUserHistory(data.userId);
-      // B. Analizar patrones
       const isSuspicious = this.analyzeHistoryPatterns(history);
       if (isSuspicious) {
         await this.createAlert(
@@ -47,8 +42,7 @@ export class AntiFraudService {
         );
         await this.blockUserAccount(
           data.userId,
-          data.transactionId,
-          'History Pattern Anomaly',
+          'History pattern anomaly detected',
         );
       }
     } catch (error) {
@@ -74,9 +68,8 @@ export class AntiFraudService {
   }
 
   private async blockUserAccount(
-    userId: number,
-    reasonTxId: number,
-    reasonMsg: string,
+    pan: number,
+    blockReason: string,
   ): Promise<void> {
     try {
       const accountsServiceUrl =
@@ -84,15 +77,14 @@ export class AntiFraudService {
         'http://localhost:3002';
       await lastValueFrom(
         this.httpService.patch(
-          `${accountsServiceUrl}/v1/accounts/${userId}/block`,
+          `${accountsServiceUrl}/v1/cards/status/${pan}/frozen`,
           {
-            reason: `Anti-Fraud System: ${reasonMsg}`,
-            referenceTransactionId: reasonTxId,
+            reason: `Anti-Fraud System: ${blockReason}`,
           },
         ),
       );
     } catch (error) {
-      this.logger.error(`FAILED to block user ${userId}`, error);
+      this.logger.error(`FAILED to block account ${pan}`, error);
     }
   }
 
