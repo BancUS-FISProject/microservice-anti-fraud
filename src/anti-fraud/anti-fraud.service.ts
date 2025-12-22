@@ -24,7 +24,7 @@ export class AntiFraudService {
     const isFraud = data.amount > 2000;
     if (isFraud) {
       await this.createAlert(data, 'Fraud attempt', 'Transaction denied.');
-      await this.blockUserAccount(data.pan, 'Fraudulent transaction detected');
+      await this.blockUserAccount(data.iban);
       return true;
     }
     return false;
@@ -41,8 +41,7 @@ export class AntiFraudService {
           'Anomalous transaction history detected',
         );
         await this.blockUserAccount(
-          data.userId,
-          'History pattern anomaly detected',
+          data.iban,
         );
       }
     } catch (error) {
@@ -68,8 +67,7 @@ export class AntiFraudService {
   }
 
   private async blockUserAccount(
-    pan: number,
-    blockReason: string,
+    iban: number,
   ): Promise<void> {
     try {
       const accountsServiceUrl =
@@ -77,14 +75,11 @@ export class AntiFraudService {
         'http://localhost:3002';
       await lastValueFrom(
         this.httpService.patch(
-          `${accountsServiceUrl}/v1/cards/status/${pan}/frozen`,
-          {
-            reason: `Anti-Fraud System: ${blockReason}`,
-          },
+          `${accountsServiceUrl}/v1/${iban}/block`,
         ),
       );
     } catch (error) {
-      this.logger.error(`FAILED to block account ${pan}`, error);
+      this.logger.error(`FAILED to block account ${iban}`, error);
     }
   }
 

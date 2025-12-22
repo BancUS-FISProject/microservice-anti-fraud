@@ -28,9 +28,9 @@ export class CheckTransactionDto {
   destination: string;
 
   @ApiProperty({
-    example: '4111111111111111',
-    description: 'Card PAN (Primary Account Number)',
+    example: 'ES910045...',
+    description: 'Account IBAN',
     required: false,
   })
-  pan: number;
+  iban: number;
 }
