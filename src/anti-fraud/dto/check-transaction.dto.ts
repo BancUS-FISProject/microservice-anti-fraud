@@ -26,4 +26,11 @@ export class CheckTransactionDto {
     required: false,
   })
   destination: string;
+
+  @ApiProperty({
+    example: 'ES910045...',
+    description: 'Account IBAN',
+    required: false,
+  })
+  iban: number;
 }
