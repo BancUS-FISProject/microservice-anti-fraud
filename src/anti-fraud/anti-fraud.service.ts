@@ -72,10 +72,10 @@ export class AntiFraudService {
     try {
       const accountsServiceUrl =
         this.configService.get<string>('ACCOUNTS_MS_URL') ||
-        'http://localhost:3002';
+        'http://localhost:8000';
       await lastValueFrom(
         this.httpService.patch(
-          `${accountsServiceUrl}/v1/${iban}/block`,
+          `${accountsServiceUrl}/v1/accounts/${iban}/block`,
         ),
       );
     } catch (error) {
