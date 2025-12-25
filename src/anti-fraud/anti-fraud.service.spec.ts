@@ -8,8 +8,17 @@ import { FraudAlert } from './schemas/fraud-alert.schema';
 
 describe('AntiFraudService', () => {
   let service: AntiFraudService;
+  let httpServiceMock: {
+    patch: jest.Mock;
+    post: jest.Mock;
+  };
 
   beforeEach(async () => {
+    httpServiceMock = {
+      patch: jest.fn().mockReturnValue(of({})),
+      post: jest.fn().mockReturnValue(of({})),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AntiFraudService,
@@ -24,10 +33,7 @@ describe('AntiFraudService', () => {
         },
         {
           provide: HttpService,
-          useValue: {
-            patch: jest.fn().mockReturnValue(of({})),
-            post: jest.fn().mockReturnValue(of({})),
-          },
+          useValue: httpServiceMock,
         },
         {
           provide: ConfigService,
@@ -49,5 +55,14 @@ describe('AntiFraudService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('should skip HTTP call when circuit is open', async () => {
+    // Forzamos la apertura del breaker y verificamos que no intente hacer la llamada HTTP
+    (service as any).blockAccountBreaker.open();
+
+    await (service as any).blockUserAccount('ES123');
+
+    expect(httpServiceMock.patch).not.toHaveBeenCalled();
   });
 });
