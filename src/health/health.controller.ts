@@ -1,9 +1,9 @@
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import {
-  Controller,
-  Get,
-  ServiceUnavailableException,
-} from '@nestjs/common';
-import { ApiOkResponse, ApiServiceUnavailableResponse, ApiTags } from '@nestjs/swagger';
+  ApiOkResponse,
+  ApiServiceUnavailableResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { HealthService } from './health.service';
 
 @Controller('health')

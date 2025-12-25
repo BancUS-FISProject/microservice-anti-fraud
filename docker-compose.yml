@@ -34,7 +34,8 @@ services:
 
 
   app-antifraude:
-    build: .
+    build: angelmr01/microservice-antifraud
+    container_name: antifraud-service
     ports:
       - "3001:3000"
     environment:

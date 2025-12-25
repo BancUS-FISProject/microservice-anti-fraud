@@ -73,9 +73,7 @@ export class AntiFraudService {
           'FRAUDULENT_BEHAVIOR',
           'Anomalous transaction history detected',
         );
-        await this.blockUserAccount(
-          data.iban,
-        );
+        await this.blockUserAccount(data.iban);
       }
     } catch (error) {
       const errMessage =
@@ -99,16 +97,14 @@ export class AntiFraudService {
     return false;
   }
 
-  private async blockUserAccount(
-    iban: string,
-  ): Promise<void> {
+  private async blockUserAccount(iban: string): Promise<void> {
     await this.blockAccountBreaker.fire(iban);
   }
 
   private async performBlockRequest(iban: string): Promise<void> {
     const accountsServiceUrl =
       this.configService.get<string>('ACCOUNTS_MS_URL') ||
-      'http://localhost:8000';
+      'http://microservice-accounts:8000';
     await lastValueFrom(
       this.httpService.patch(
         `${accountsServiceUrl}/v1/accounts/${iban}/block`,
