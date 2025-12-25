@@ -32,5 +32,5 @@ export class CheckTransactionDto {
     description: 'Account IBAN',
     required: false,
   })
-  iban: number;
+  iban: string;
 }
