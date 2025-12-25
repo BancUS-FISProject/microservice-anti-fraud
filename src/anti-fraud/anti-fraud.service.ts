@@ -5,12 +5,15 @@ import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import { lastValueFrom } from 'rxjs';
+import CircuitBreaker from 'opossum';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 
 @Injectable()
 export class AntiFraudService {
   private readonly logger = new Logger(AntiFraudService.name);
+  private readonly blockAccountBreaker: CircuitBreaker<[string], void>;
+  private readonly blockRequestTimeoutMs: number;
 
   constructor(
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
@@ -18,7 +21,37 @@ export class AntiFraudService {
     private readonly configService: ConfigService,
     @Inject('BANK_STATEMENTS_SERVICE')
     private readonly bankStatementsClient: ClientProxy,
-  ) {}
+  ) {
+    this.blockRequestTimeoutMs =
+      Number(this.configService.get<number>('ACCOUNTS_BLOCK_TIMEOUT_MS')) ||
+      3000;
+
+    this.blockAccountBreaker = new CircuitBreaker(
+      (iban: string) => this.performBlockRequest(iban),
+      {
+        timeout: this.blockRequestTimeoutMs, // corta la llamada lenta
+        errorThresholdPercentage: 50, // abre si el 50% fallan
+        resetTimeout: 10000, // vuelve a probar tras 10s
+        volumeThreshold: 5, // mínimo de solicitudes antes de evaluar
+      },
+    );
+
+    this.blockAccountBreaker.fallback((iban: string) => {
+      this.logger.error(
+        `Circuit breaker fallback: could not block account ${iban}.`,
+      );
+    });
+
+    this.blockAccountBreaker.on('open', () =>
+      this.logger.warn('[Breaker] Block account circuit open'),
+    );
+    this.blockAccountBreaker.on('halfOpen', () =>
+      this.logger.warn('[Breaker] Block account circuit half-open'),
+    );
+    this.blockAccountBreaker.on('close', () =>
+      this.logger.log('[Breaker] Block account circuit closed'),
+    );
+  }
 
   async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
     const isFraud = data.amount > 2000;
@@ -40,9 +73,7 @@ export class AntiFraudService {
           'FRAUDULENT_BEHAVIOR',
           'Anomalous transaction history detected',
         );
-        await this.blockUserAccount(
-          data.iban,
-        );
+        await this.blockUserAccount(data.iban);
       }
     } catch (error) {
       const errMessage =
@@ -66,21 +97,21 @@ export class AntiFraudService {
     return false;
   }
 
-  private async blockUserAccount(
-    iban: number,
-  ): Promise<void> {
-    try {
-      const accountsServiceUrl =
-        this.configService.get<string>('ACCOUNTS_MS_URL') ||
-        'http://microservice-accounts:8000';
-      await lastValueFrom(
-        this.httpService.patch(
-          `${accountsServiceUrl}/v1/accounts/${iban}/block`,
-        ),
-      );
-    } catch (error) {
-      this.logger.error(`FAILED to block account ${iban}`, error);
-    }
+  private async blockUserAccount(iban: string): Promise<void> {
+    await this.blockAccountBreaker.fire(iban);
+  }
+
+  private async performBlockRequest(iban: string): Promise<void> {
+    const accountsServiceUrl =
+      this.configService.get<string>('ACCOUNTS_MS_URL') ||
+      'http://microservice-accounts:8000';
+    await lastValueFrom(
+      this.httpService.patch(
+        `${accountsServiceUrl}/v1/accounts/${iban}/block`,
+        {},
+        { timeout: this.blockRequestTimeoutMs },
+      ),
+    );
   }
 
   private async sendNotification(

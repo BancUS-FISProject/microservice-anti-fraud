@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Transport, MicroserviceOptions } from '@nestjs/microservices';
+import { HealthService } from './health/health.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -32,5 +33,8 @@ async function bootstrap() {
 
   await app.startAllMicroservices();
   await app.listen(process.env.PORT ?? 3000);
+
+  const health = app.get(HealthService);
+  health.markReady();
 }
 bootstrap();
