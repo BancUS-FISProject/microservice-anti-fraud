@@ -1,9 +1,8 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { ClientProxy } from '@nestjs/microservices';
 import { lastValueFrom } from 'rxjs';
 import CircuitBreaker from 'opossum';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
@@ -19,8 +18,6 @@ export class AntiFraudService {
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
-    @Inject('BANK_STATEMENTS_SERVICE')
-    private readonly bankStatementsClient: ClientProxy,
   ) {
     this.blockRequestTimeoutMs =
       Number(this.configService.get<number>('ACCOUNTS_BLOCK_TIMEOUT_MS')) ||
@@ -82,12 +79,15 @@ export class AntiFraudService {
     }
   }
 
-  private async fetchUserHistory(userId: number): Promise<any[]> {
-    // .send(patrón, datos) -> Envía un mensaje y espera una respuesta.
-    // El servicio de historial debe tener un @MessagePattern('get_history')
-    return await lastValueFrom(
-      this.bankStatementsClient.send({ cmd: 'get_history' }, { userId }),
+  private async fetchUserHistory(iban: number): Promise<any[]> {
+    const bankStatementsUrl =
+      this.configService.get<string>('BANK_STATEMENTS_MS_URL') ||
+      'http://localhost:3005';
+    const response = await lastValueFrom(
+      this.httpService.get(`${bankStatementsUrl}/v1/bankstatemens/${iban}`),
     );
+
+    return response.data;
   }
 
   private analyzeHistoryPatterns(history: any[]): boolean {

@@ -3,7 +3,10 @@ import { Document } from 'mongoose';
 
 export type FraudAlertDocument = FraudAlert & Document;
 
-@Schema({ timestamps: true })
+@Schema({
+  collection: 'fraudalerts',
+  timestamps: true,
+})
 export class FraudAlert {
   @Prop({ required: true, index: true })
   userId: number;
