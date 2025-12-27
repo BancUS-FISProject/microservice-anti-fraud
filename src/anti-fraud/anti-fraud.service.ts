@@ -53,8 +53,8 @@ export class AntiFraudService {
   async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
     const isFraud = data.amount > 2000;
     if (isFraud) {
-      await this.createAlert(data, 'Fraud attempt', 'Transaction denied.');
-      await this.blockUserAccount(data.iban);
+      await this.createAlert(data, 'Transaction denied.');
+      await this.blockUserAccount(data.origin);
       return true;
     }
     return false;
@@ -62,15 +62,14 @@ export class AntiFraudService {
 
   async checkTransactionHistory(data: CheckTransactionDto): Promise<void> {
     try {
-      const history = await this.fetchUserHistory(data.userId);
+      const history = await this.fetchUserHistory(data.origin);
       const isSuspicious = this.analyzeHistoryPatterns(history);
       if (isSuspicious) {
         await this.createAlert(
           data,
-          'FRAUDULENT_BEHAVIOR',
           'Anomalous transaction history detected',
         );
-        await this.blockUserAccount(data.iban);
+        await this.blockUserAccount(data.origin);
       }
     } catch (error) {
       const errMessage =
@@ -79,7 +78,7 @@ export class AntiFraudService {
     }
   }
 
-  private async fetchUserHistory(iban: number): Promise<any[]> {
+  private async fetchUserHistory(iban: string): Promise<any[]> {
     const bankStatementsUrl =
       this.configService.get<string>('BANK_STATEMENTS_MS_URL') ||
       'http://localhost:3005';
@@ -115,9 +114,8 @@ export class AntiFraudService {
   }
 
   private async sendNotification(
-    userId: number,
+    origin: string,
     message: string,
-    type: string,
   ): Promise<void> {
     try {
       const notificationsServiceUrl =
@@ -125,9 +123,8 @@ export class AntiFraudService {
         'http://localhost:3004';
       await lastValueFrom(
         this.httpService.post(`${notificationsServiceUrl}/v1/notifications`, {
-          userId: userId,
+          origin: origin,
           message: message,
-          type: type,
           source: 'ANTI_FRAUD_SERVICE',
         }),
       );
@@ -141,20 +138,18 @@ export class AntiFraudService {
 
   private async createAlert(
     data: CheckTransactionDto,
-    type: string,
     reason: string,
   ): Promise<void> {
     try {
       await this.alertModel.create({
-        userId: data.userId,
-        transactionId: data.transactionId,
-        source: 'SYSTEM_DETECTED',
-        type: type,
+        origin: data.origin,
+        destination: data.destination,
+        amount: data.amount,
         reason: reason,
         status: 'PENDING',
       });
 
-      await this.sendNotification(data.userId, `Fraud Alert: ${reason}`, type);
+      await this.sendNotification(data.origin, `Fraud Alert: ${reason}`);
     } catch (error) {
       this.logger.error(
         `FAILED to create alert with reason ${reason} and error`,
@@ -163,7 +158,7 @@ export class AntiFraudService {
     }
   }
 
-  async getAlertsForUser(userId: number) {
-    return this.alertModel.find({ userId: userId }).exec();
+  async getAlertsForAccount(iban: string) {
+    return this.alertModel.find({ origin: iban }).exec();
   }
 }
