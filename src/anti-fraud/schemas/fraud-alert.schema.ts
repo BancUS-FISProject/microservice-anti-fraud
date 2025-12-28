@@ -3,19 +3,19 @@ import { Document } from 'mongoose';
 
 export type FraudAlertDocument = FraudAlert & Document;
 
-@Schema({ timestamps: true })
+@Schema({
+  collection: 'fraudalerts',
+  timestamps: true,
+})
 export class FraudAlert {
-  @Prop({ required: true, index: true })
-  userId: number;
+  @Prop({ required: true })
+  origin: string;
 
   @Prop({ required: true })
-  transactionId: number;
-
-  @Prop({ default: 'SYSTEM_DETECTED' })
-  source: string; // SYSTEM_DETECTED o USER_REPORTED
+  destination: string;
 
   @Prop({ required: true })
-  type: string; // Ej: SUSPICIOUS_ACCOUNT, HIGH_VELOCITY
+  amount: number;
 
   @Prop({ required: true })
   reason: string; // Descripción del problema
@@ -29,4 +29,4 @@ export class FraudAlert {
 export const FraudAlertSchema = SchemaFactory.createForClass(FraudAlert);
 
 // Un usuario solo puede tener 1 alerta por transacción
-FraudAlertSchema.index({ userId: 1, transactionId: 1 }, { unique: true });
+FraudAlertSchema.index({ origin: 1, destination: 1, amount:1 }, { unique: true });

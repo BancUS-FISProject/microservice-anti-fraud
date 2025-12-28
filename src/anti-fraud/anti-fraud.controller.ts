@@ -9,7 +9,6 @@ import {
   ForbiddenException,
   ParseIntPipe,
 } from '@nestjs/common';
-import { EventPattern, Payload } from '@nestjs/microservices';
 import { AntiFraudService } from './anti-fraud.service';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import {
@@ -26,30 +25,24 @@ export class AntiFraudController {
   constructor(private readonly antiFraudService: AntiFraudService) {}
 
   @Post('fraud-alerts/check')
-  @ApiOperation({ summary: 'Check if a transaction is risky.' })
+  @ApiOperation({ summary: 'Check if a transaction is fraudulent' })
   @ApiBody({
     type: CheckTransactionDto,
     examples: {
       safeCase: {
         summary: 'Example: Safe Transaction',
         value: {
-          transactionId: 1001,
-          userId: 50,
-          amount: 500,
-          origin: 'ES-111',
+          origin: 'ES4220946904812190707297',
           destination: 'ES-222',
-          iban: 'ES4220946904812190707297',
+          amount: 500
         },
       },
       fraudCase: {
         summary: 'Example: Risk Transaction',
         value: {
-          transactionId: 9999,
-          userId: 666,
-          amount: 2500,
-          origin: 'ES-666',
+          origin: 'ES4220946904812190707297',
           destination: 'KY-OFFSHORE-999',
-          iban: 'ES4220946904812190707297',
+          amount: 2500
         },
       },
     },
@@ -57,40 +50,39 @@ export class AntiFraudController {
   @ApiResponse({ status: 200, description: 'Transaction approved.' })
   @ApiResponse({
     status: 403,
-    description: 'Transaction rejected and account blocked.',
+    description: 'Transaction denied.',
   })
   @HttpCode(HttpStatus.OK)
   async checkTransaction(@Body() data: CheckTransactionDto) {
     const isRisky = await this.antiFraudService.checkTransactionRisk(data);
     if (isRisky) {
       throw new ForbiddenException({
-        message: 'Transaction rejected',
+        message: 'Transaction denied',
         code: 'HIGH_RISK',
       });
     }
-    return { status: 'APPROVED', message: 'Transaction accepted' };
+    return { status: 'APPROVED', message: 'Transaction approved' };
   }
 
-  @EventPattern('transaction_created')
-  async handleTransactionCreated(@Payload() data: CheckTransactionDto) {
-    await this.antiFraudService.checkTransactionHistory(data);
-  }
 
-  @Get('users/:userId/fraud-alerts')
+
+
+  @Get('users/:iban/fraud-alerts')
   @ApiOperation({
     summary:
-      'Retrieves transaction history alerts for a specific user by their ID.',
+      'Retrieves transaction history alerts for a specific account using the IBAN.',
   })
   @ApiParam({
-    name: 'userId',
-    example: 666,
-    description: 'Target User ID (Numeric)',
+    name: 'iban',
+    example: 'ES4220946904812190707297',
+    description: 'Target Account number',
   })
   @ApiResponse({
     status: 200,
     description: 'List of alerts retrieved successfully.',
   })
-  async getUserAlerts(@Param('userId', ParseIntPipe) userId: number) {
-    return this.antiFraudService.getAlertsForUser(userId);
+  @ApiResponse({ status: 200, description: 'List of alerts retrieved.' })
+  async getAccountAlerts(@Param('iban') iban: string) {
+    return this.antiFraudService.getAlertsForAccount(iban);
   }
 }
