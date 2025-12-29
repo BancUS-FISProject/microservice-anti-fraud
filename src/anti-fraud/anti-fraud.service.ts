@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
@@ -159,6 +159,11 @@ export class AntiFraudService {
   }
 
   async getAlertsForAccount(iban: string) {
-    return this.alertModel.find({ origin: iban }).exec();
+    this.logger.log(`Searching alerts for IBAN: ${iban}`);
+    const alerts = await this.alertModel.find({ origin: iban }).exec();
+    if (!alerts || alerts.length === 0) {
+      throw new NotFoundException(`No alerts found for account: ${iban}`);
+    }
+    return alerts;
   }
 }
