@@ -11,7 +11,15 @@ services:
     environment:
       - MONGO_URI=${MONGO_DOCKER_URI}
       - MONGO_DB=antifraud_db
-      - BANK_STATEMENTS_MS_URL=${BANK_STATEMENTS_URL}
+      #- BANK_STATEMENTS_MS_URL=${BANK_STATEMENTS_URL}
+      # Apuntamos al servidor de Mocks
+      - BANK_STATEMENTS_MS_URL=http://mocks-server:80
+      - ACCOUNTS_MS_URL=http://mocks-server:80
+      - NOTIFICATIONS_MS_URL=http://mocks-server:80
+      - CARDS_MS_URL=http://mocks-server:80
+      
+      # Configuración del Circuit Breaker
+      - ACCOUNTS_BLOCK_TIMEOUT_MS=3000
     depends_on:
       mongo:
         condition: service_healthy
@@ -25,7 +33,7 @@ services:
     ports:
       - "27017:27017"
     environment:
-      - MONGO_INITDB_DATABASE=antifraud-db
+      - MONGO_INITDB_DATABASE=antifraud_db
     volumes:
       - mongo-data:/data/db
     command: ["mongod", "--quiet", "--logpath", "/dev/null"]
