@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Put,
+  Delete,
   Body,
   Param,
   HttpCode,
@@ -10,13 +12,13 @@ import {
 } from '@nestjs/common';
 import { AntiFraudService } from './anti-fraud.service';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
+import { UpdateFraudAlertDto } from './dto/update-fraud-alert.dto';
 import {
   ApiOperation,
   ApiResponse,
   ApiTags,
   ApiParam,
   ApiBody,
-  ApiNotFoundResponse
 } from '@nestjs/swagger';
 
 @ApiTags('Anti-Fraud')
@@ -96,4 +98,39 @@ export class AntiFraudController {
   async getAccountAlerts(@Param('iban') iban: string) {
     return this.antiFraudService.getAlertsForAccount(iban);
   }
+
+  // PUT /v1/fraud-alerts/:id
+  @Put('fraud-alerts/:id')
+  @ApiOperation({ summary: 'Update an existing fraud alert' })
+  @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
+  @ApiBody({ type: UpdateFraudAlertDto })
+  @ApiResponse({ status: 200, description: 'Alert updated successfully.' })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Alert not found' 
+  })
+  async updateAlert(
+    @Param('id') id: string,
+    @Body() updateData: UpdateFraudAlertDto
+  ) {
+    return this.antiFraudService.updateAlert(id, updateData);
+  }
+
+  // DELETE /v1/fraud-alerts/:id
+  @Delete('fraud-alerts/:id')
+  @ApiOperation({ summary: 'Delete a fraud alert permanently' })
+  @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
+  @ApiResponse({ status: 200, description: 'Alert deleted successfully.' })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Alert not found' 
+  })
+  async deleteAlert(@Param('id') id: string) {
+    return this.antiFraudService.deleteAlert(id);
+  }
+
+
+
+
+
 }
