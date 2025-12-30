@@ -8,7 +8,6 @@ import {
   Param,
   HttpCode,
   HttpStatus,
-  ForbiddenException,
 } from '@nestjs/common';
 import { AntiFraudService } from './anti-fraud.service';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
@@ -19,6 +18,8 @@ import {
   ApiTags,
   ApiParam,
   ApiBody,
+  ApiBadRequestResponse,
+  ApiNotFoundResponse
 } from '@nestjs/swagger';
 
 @ApiTags('Anti-Fraud')
@@ -50,24 +51,18 @@ export class AntiFraudController {
     },
   })
   @ApiResponse({ status: 200, description: 'Transaction approved.' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden: Transaction denied.',
-  })
-  @ApiResponse({
-    status: 400,
+  @ApiBadRequestResponse({
     description: 'Bad request: Missing fields or invalid types.',
   })
   @HttpCode(HttpStatus.OK)
   async checkTransaction(@Body() data: CheckTransactionDto) {
     const isRisky = await this.antiFraudService.checkTransactionRisk(data);
     if (isRisky) {
-      throw new ForbiddenException({
-        message: 'Transaction denied',
-        code: 'HIGH_RISK',
-      });
+      return { 
+        message: 'Fraudulent behaviour detected.' 
+      };
     }
-    return { status: 'APPROVED', message: 'Transaction approved' };
+    return {  message: 'Transaction approved' };
   }
 
   @Get('users/:iban/fraud-alerts')
@@ -86,8 +81,8 @@ export class AntiFraudController {
     status: 200,
     description: 'List of alerts retrieved successfully.',
   })
-  @ApiResponse({
-    status: 404,
+  @ApiBadRequestResponse({ description: 'Invalid request format.' })
+  @ApiNotFoundResponse({
     description: 'No alerts found for the provided IBAN.',
   })
   @ApiResponse({ status: 200, description: 'List of alerts retrieved.' })
@@ -101,9 +96,11 @@ export class AntiFraudController {
   @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
   @ApiBody({ type: UpdateFraudAlertDto })
   @ApiResponse({ status: 200, description: 'Alert updated successfully.' })
-  @ApiResponse({
-    status: 404,
-    description: 'Alert not found',
+  @ApiNotFoundResponse({
+    description: 'Alert not found'
+  })
+  @ApiBadRequestResponse({ 
+    description: 'Invalid ID format.' 
   })
   async updateAlert(
     @Param('id') id: string,
@@ -117,10 +114,10 @@ export class AntiFraudController {
   @ApiOperation({ summary: 'Delete a fraud alert permanently' })
   @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
   @ApiResponse({ status: 200, description: 'Alert deleted successfully.' })
-  @ApiResponse({
-    status: 404,
+  @ApiNotFoundResponse({
     description: 'Alert not found',
   })
+  @ApiBadRequestResponse({ description: 'Invalid ID format.' })
   async deleteAlert(@Param('id') id: string) {
     return this.antiFraudService.deleteAlert(id);
   }
