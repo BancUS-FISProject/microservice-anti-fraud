@@ -29,4 +29,7 @@ export class FraudAlert {
 export const FraudAlertSchema = SchemaFactory.createForClass(FraudAlert);
 
 // Un usuario solo puede tener 1 alerta por transacción
-FraudAlertSchema.index({ origin: 1, destination: 1, createdAt:1 }, { unique: true });
+FraudAlertSchema.index(
+  { origin: 1, destination: 1, createdAt: 1 },
+  { unique: true },
+);

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
@@ -8,6 +8,14 @@ import CircuitBreaker from 'opossum';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 import { UpdateFraudAlertDto } from './dto/update-fraud-alert.dto';
+
+//Interfaz para evitar problemas con linter.
+interface HistoryTransaction {
+  amount: number;
+  origin: string;
+  destination: string;
+  date: string;
+}
 
 @Injectable()
 export class AntiFraudService {
@@ -54,36 +62,55 @@ export class AntiFraudService {
   // POST: Check transaction
 
   async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
-    this.logger.log(`Analyzing Transaction: ${data.amount}€ | Origin: ${data.origin}`);
+    this.logger.log(
+      `Analyzing Transaction: ${data.amount}€ | Origin: ${data.origin}`,
+    );
     const isFraud = data.amount > 2000;
     if (isFraud) {
-      this.logger.log(`High amount detected (>2000€). Investigating history for account ${data.origin}`);
-      try{
+      this.logger.log(
+        `High amount detected (>2000€). Investigating history for account ${data.origin}`,
+      );
+      try {
         const history = await this.fetchUserHistory(data.origin);
 
         // 2. Count how many times this account moved > 2000€
         // (Assuming history comes as an array of objects with an 'amount' field)
-        const highValueCount = history.filter((tx: any) => tx.amount > 2000).length;
+        const highValueCount = history.filter(
+          (tx: HistoryTransaction) => tx.amount > 2000,
+        ).length;
 
-        this.logger.log(`Found ${highValueCount} previous high-value transactions.`);
+        this.logger.log(
+          `Found ${highValueCount} previous high-value transactions.`,
+        );
 
         if (highValueCount >= 2) {
-          this.logger.warn(`REPEATED HIGH VALUE DETECTED (${highValueCount} times). Blocking account.`);
-          
-          await this.createAlert(data, `Repeated high transactions (>2000) detected: ${highValueCount + 1} times`);
+          this.logger.warn(
+            `REPEATED HIGH VALUE DETECTED (${highValueCount} times). Blocking account.`,
+          );
+
+          await this.createAlert(
+            data,
+            `Repeated high transactions (>2000) detected: ${highValueCount + 1} times`,
+          );
           await this.blockUserAccount(data.origin);
           return true;
         }
-      }catch (error){
-        const errMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`Failed to fetch history during check. Error: ${errMessage}`);
+      } catch (error) {
+        const errMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(
+          `Failed to fetch history during check. Error: ${errMessage}`,
+        );
         //Tenemos 2 opciones si falla historial:
-        
+
         //OPCION 1 - Devolver error 500
         //throw new InternalServerErrorException('Could not verify transaction history');
 
         // OPCION 2 - Bloqueo preventivo.
-        await this.createAlert(data, `High amount (>2000) and History Service Unavailable. Error: ${errMessage}`);
+        await this.createAlert(
+          data,
+          `High amount (>2000) and History Service Unavailable. Error: ${errMessage}`,
+        );
         await this.blockUserAccount(data.origin);
         return true;
       }
@@ -91,8 +118,7 @@ export class AntiFraudService {
     return false;
   }
 
-
-  private async fetchUserHistory(iban: string): Promise<any[]> {
+  private async fetchUserHistory(iban: string): Promise<HistoryTransaction[]> {
     const bankStatementsUrl =
       this.configService.get<string>('BANK_STATEMENTS_MS_URL') ||
       'http://localhost:3005';
@@ -100,9 +126,8 @@ export class AntiFraudService {
       this.httpService.get(`${bankStatementsUrl}/v1/bankstatements/${iban}`),
     );
 
-    return response.data;
+    return response.data as HistoryTransaction[];
   }
-
 
   private async blockUserAccount(iban: string): Promise<void> {
     await this.blockAccountBreaker.fire(iban);
@@ -166,7 +191,6 @@ export class AntiFraudService {
     }
   }
 
-
   // GET - Retrieve fraud alerts registered by the system.
 
   async getAlertsForAccount(iban: string) {
@@ -178,21 +202,19 @@ export class AntiFraudService {
     return alerts;
   }
 
-
   // PUT - Update registered alert's data.
   async updateAlert(id: string, updateData: UpdateFraudAlertDto) {
-    this.logger.log(`Updating alert ${id} with data: ${JSON.stringify(updateData)}`);
-    const updatedAlert = await this.alertModel.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true }
-    ).exec();
+    this.logger.log(
+      `Updating alert ${id} with data: ${JSON.stringify(updateData)}`,
+    );
+    const updatedAlert = await this.alertModel
+      .findByIdAndUpdate(id, updateData, { new: true })
+      .exec();
     if (!updatedAlert) {
       throw new NotFoundException(`Alert with ID ${id} not found`);
     }
     return updatedAlert;
   }
-
 
   //DELETE - Delete an specified registered alert.
   async deleteAlert(id: string) {
@@ -203,7 +225,4 @@ export class AntiFraudService {
     }
     return { message: 'Alert deleted successfully', id };
   }
-
-  
-
 }

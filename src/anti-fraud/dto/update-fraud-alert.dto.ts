@@ -13,16 +13,19 @@ export class UpdateFraudAlertDto {
     example: 'FALSE_POSITIVE',
     description: 'New status of the alert',
     enum: AlertStatus,
-    required: false
+    required: false,
   })
   @IsOptional()
-  @IsEnum(AlertStatus, { message: 'The status value must be one of the following: PENDING, REVIEWED, CONFIRMED, FALSE_POSITIVE' })
+  @IsEnum(AlertStatus, {
+    message:
+      'The status value must be one of the following: PENDING, REVIEWED, CONFIRMED, FALSE_POSITIVE',
+  })
   status?: AlertStatus;
 
   @ApiProperty({
     example: 'Customer confirmed transaction via phone call',
     description: 'Updated reason or notes',
-    required: false
+    required: false,
   })
   @IsOptional()
   @IsString()

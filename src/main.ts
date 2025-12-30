@@ -9,15 +9,13 @@ async function bootstrap() {
 
   // Esto asegura que todos los endpoints validen automáticamente el cuerpo de la petición
   // basándose en los decoradores (@IsString, @IsNumber, ...) de los DTOs.
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }));
-
-
-
-
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
   const config = new DocumentBuilder()
     .setTitle('Anti-Fraud Microservice')
