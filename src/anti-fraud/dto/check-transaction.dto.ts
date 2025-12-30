@@ -2,14 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsNumber, IsNotEmpty } from 'class-validator';
 
 export class CheckTransactionDto {
-
   @ApiProperty({
     example: 'ES912100...',
     description: 'Source account (IBAN)',
     required: true,
   })
   @IsString({ message: 'Origin must be a valid string.' })
-  @IsNotEmpty({ message: 'Missing origin field' }) 
+  @IsNotEmpty({ message: 'Missing origin field' })
   origin: string;
 
   @ApiProperty({
@@ -18,16 +17,15 @@ export class CheckTransactionDto {
     required: true,
   })
   @IsString({ message: 'Destination must be a valid string.' })
-  @IsNotEmpty({ message: 'Missing destination field' }) 
+  @IsNotEmpty({ message: 'Missing destination field' })
   destination: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     example: 1500,
-     description: 'Transaction amount',
-     required: true
+    description: 'Transaction amount',
+    required: true,
   })
   @IsNumber({}, { message: 'Amount must be a valid number.' })
   @IsNotEmpty({ message: 'Missing amount field' })
   amount: number;
-
 }

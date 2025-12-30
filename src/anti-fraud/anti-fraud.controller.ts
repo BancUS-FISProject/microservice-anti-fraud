@@ -36,7 +36,7 @@ export class AntiFraudController {
         value: {
           origin: 'ES4220946904812190707297',
           destination: 'ES-222',
-          amount: 500
+          amount: 500,
         },
       },
       fraudCase: {
@@ -44,7 +44,7 @@ export class AntiFraudController {
         value: {
           origin: 'ES4220946904812190707297',
           destination: 'KY-OFFSHORE-999',
-          amount: 2500
+          amount: 2500,
         },
       },
     },
@@ -54,9 +54,9 @@ export class AntiFraudController {
     status: 403,
     description: 'Forbidden: Transaction denied.',
   })
-  @ApiResponse({ 
-    status: 400, 
-    description: 'Bad request: Missing fields or invalid types.' 
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request: Missing fields or invalid types.',
   })
   @HttpCode(HttpStatus.OK)
   async checkTransaction(@Body() data: CheckTransactionDto) {
@@ -70,29 +70,25 @@ export class AntiFraudController {
     return { status: 'APPROVED', message: 'Transaction approved' };
   }
 
-
-
-
   @Get('users/:iban/fraud-alerts')
   @ApiOperation({
     summary:
       'Retrieves transaction history alerts for a specific account using the IBAN.',
-    description:
-      'Returns all alerts where this IBAN/Card was the origin.'
+    description: 'Returns all alerts where this IBAN/Card was the origin.',
   })
   @ApiParam({
     name: 'iban',
     example: 'ES4220946904812190707297',
     description: 'Target Account number',
-    required: true
+    required: true,
   })
   @ApiResponse({
     status: 200,
     description: 'List of alerts retrieved successfully.',
   })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'No alerts found for the provided IBAN.' 
+  @ApiResponse({
+    status: 404,
+    description: 'No alerts found for the provided IBAN.',
   })
   @ApiResponse({ status: 200, description: 'List of alerts retrieved.' })
   async getAccountAlerts(@Param('iban') iban: string) {
@@ -105,13 +101,13 @@ export class AntiFraudController {
   @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
   @ApiBody({ type: UpdateFraudAlertDto })
   @ApiResponse({ status: 200, description: 'Alert updated successfully.' })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'Alert not found' 
+  @ApiResponse({
+    status: 404,
+    description: 'Alert not found',
   })
   async updateAlert(
     @Param('id') id: string,
-    @Body() updateData: UpdateFraudAlertDto
+    @Body() updateData: UpdateFraudAlertDto,
   ) {
     return this.antiFraudService.updateAlert(id, updateData);
   }
@@ -121,16 +117,11 @@ export class AntiFraudController {
   @ApiOperation({ summary: 'Delete a fraud alert permanently' })
   @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
   @ApiResponse({ status: 200, description: 'Alert deleted successfully.' })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'Alert not found' 
+  @ApiResponse({
+    status: 404,
+    description: 'Alert not found',
   })
   async deleteAlert(@Param('id') id: string) {
     return this.antiFraudService.deleteAlert(id);
   }
-
-
-
-
-
 }
