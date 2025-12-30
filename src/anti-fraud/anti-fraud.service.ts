@@ -7,7 +7,7 @@ import { lastValueFrom } from 'rxjs';
 import CircuitBreaker from 'opossum';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
-import { UpdateFraudAlertDto } from './dto/update-fraud-alert.dto';
+import { UpdateFraudAlertDto, AlertStatus } from './dto/update-fraud-alert.dto';
 
 //Interfaz para evitar problemas con linter.
 interface HistoryTransaction {
@@ -65,10 +65,15 @@ export class AntiFraudService {
     this.logger.log(
       `Analyzing Transaction: ${data.amount}€ | Origin: ${data.origin}`,
     );
-    const isFraud = data.amount > 2000;
-    if (isFraud) {
+    const isSuspicious = data.amount > 2000;
+    if (isSuspicious) {
       this.logger.log(
         `High amount detected (>2000€). Investigating history for account ${data.origin}`,
+      );
+
+      const initialAlert = await this.createAlert(
+        data,
+        `Suspicious transaction detected: high money amount transferred.`,
       );
       try {
         const history = await this.fetchUserHistory(data.origin);
@@ -88,10 +93,12 @@ export class AntiFraudService {
             `REPEATED HIGH VALUE DETECTED (${highValueCount} times). Blocking account.`,
           );
 
+          /*
           await this.createAlert(
             data,
             `Repeated high transactions (>2000) detected: ${highValueCount + 1} times`,
           );
+          */
           await this.blockUserAccount(data.origin);
           return true;
         }
@@ -107,10 +114,13 @@ export class AntiFraudService {
         //throw new InternalServerErrorException('Could not verify transaction history');
 
         // OPCION 2 - Bloqueo preventivo.
-        await this.createAlert(
-          data,
-          `High amount (>2000) and History Service Unavailable. Error: ${errMessage}`,
-        );
+        if(initialAlert){
+          await this.updateAlert(initialAlert._id.toString(), {
+          reason: `High amount (>2000) and History Service Unavailable. Error: ${errMessage}`,
+          status: AlertStatus.REVIEWED
+        });
+        }
+        
         await this.blockUserAccount(data.origin);
         return true;
       }
@@ -172,9 +182,9 @@ export class AntiFraudService {
   private async createAlert(
     data: CheckTransactionDto,
     reason: string,
-  ): Promise<void> {
+  ): Promise<FraudAlertDocument | null> {
     try {
-      await this.alertModel.create({
+      const newAlert = await this.alertModel.create({
         origin: data.origin,
         destination: data.destination,
         amount: data.amount,
@@ -183,11 +193,13 @@ export class AntiFraudService {
       });
 
       await this.sendNotification(data.origin, `Fraud Alert: ${reason}`);
+      return newAlert;
     } catch (error) {
       this.logger.error(
         `FAILED to create alert with reason ${reason} and error`,
         error,
       );
+      return null;
     }
   }
 
