@@ -38,6 +38,7 @@ export class AntiFraudController {
           origin: 'ES4220946904812190707297',
           destination: 'ES-222',
           amount: 500,
+          transactionDate: '2025-12-26T10:00:00Z'
         },
       },
       fraudCase: {
@@ -46,6 +47,7 @@ export class AntiFraudController {
           origin: 'ES4220946904812190707297',
           destination: 'KY-OFFSHORE-999',
           amount: 2500,
+          transactionDate: '2025-12-26T10:00:00Z'
         },
       },
     },

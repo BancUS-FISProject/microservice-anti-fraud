@@ -5,7 +5,10 @@ export type FraudAlertDocument = FraudAlert & Document;
 
 @Schema({
   collection: 'fraudalerts',
-  timestamps: true,
+  timestamps: { 
+    createdAt: 'reportDate',
+    updatedAt: 'reportUpdateDate'
+  }
 })
 export class FraudAlert {
   @Prop({ required: true })
@@ -18,18 +21,22 @@ export class FraudAlert {
   amount: number;
 
   @Prop({ required: true })
-  reason: string; // Descripción del problema
+  transactionDate: Date;
+
+  @Prop({ required: true })
+  reason: string;
 
   @Prop({ default: 'PENDING' })
   status: 'PENDING' | 'REVIEWED' | 'CONFIRMED' | 'FALSE_POSITIVE';
 
-  createdAt?: Date; // Para que el lindt no de error.
+  reportCreationDate?: Date; // Para que el lindt no de error.
+  reportUpdateDate?: Date;
 }
 
 export const FraudAlertSchema = SchemaFactory.createForClass(FraudAlert);
 
 // Un usuario solo puede tener 1 alerta por transacción
 FraudAlertSchema.index(
-  { origin: 1, destination: 1, createdAt: 1 },
+  { origin: 1, destination: 1, transactionDate: 1 },
   { unique: true },
 );

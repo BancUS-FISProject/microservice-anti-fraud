@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsNotEmpty } from 'class-validator';
+import { IsString, IsNumber, IsNotEmpty, IsDateString } from 'class-validator';
 
 export class CheckTransactionDto {
   @ApiProperty({
@@ -28,4 +28,12 @@ export class CheckTransactionDto {
   @IsNumber({}, { message: 'Amount must be a valid number.' })
   @IsNotEmpty({ message: 'Missing amount field' })
   amount: number;
+
+  @ApiProperty({ 
+    example: '2023-10-27T10:00:00.000Z', 
+    description: 'Date of the transaction' 
+  })
+  @IsDateString({}, { message: 'The field transactionDate must be a valid date' })
+  @IsNotEmpty({ message: 'The field creation date is mandatory.' })
+  transactionDate: Date;
 }

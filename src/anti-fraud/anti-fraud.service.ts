@@ -76,7 +76,7 @@ export class AntiFraudService {
         `Suspicious transaction detected: high money amount transferred.`,
       );
       try {
-        const history = await this.fetchUserHistory(data.origin);
+        const history = await this.fetchUserHistory(data.origin, data.transactionDate);
 
         // 2. Count how many times this account moved > 2000€
         // (Assuming history comes as an array of objects with an 'amount' field)
@@ -116,7 +116,7 @@ export class AntiFraudService {
         // OPCION 2 - Bloqueo preventivo.
         if(initialAlert){
           await this.updateAlert(initialAlert._id.toString(), {
-          reason: `High amount (>2000) and History Service Unavailable. Error: ${errMessage}`,
+          reason: `High transaction amount detected and bank-statements service unavailable. Error: ${errMessage}`,
           status: AlertStatus.REVIEWED
         });
         }
@@ -128,12 +128,28 @@ export class AntiFraudService {
     return false;
   }
 
-  private async fetchUserHistory(iban: string): Promise<HistoryTransaction[]> {
+  private async fetchUserHistory(iban: string, transactionDate: Date | string): Promise<HistoryTransaction[]> {
     const bankStatementsUrl =
       this.configService.get<string>('BANK_STATEMENTS_MS_URL') ||
-      'http://localhost:3005';
+      'http://microservice-bank-statements:8000';
+
+    const dateObj = new Date(transactionDate);
+    const year = dateObj.getFullYear();
+    // getMonth() devuelve de 0 a 11, así que sumamos 1 y rellenamos con '0' a la izquierda
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const monthParam = `${year}-${month}`;
+    this.logger.log(`Fetching history for ${iban} in month ${monthParam}`);
+
     const response = await lastValueFrom(
-      this.httpService.get(`${bankStatementsUrl}/v1/bankstatements/${iban}`),
+        this.httpService.get<HistoryTransaction[]>(
+          `${bankStatementsUrl}/v1/bankstatements/by-iban`, 
+          {
+            params: {
+              iban: iban,
+              month: monthParam
+            }
+          }
+        ),
     );
 
     return response.data as HistoryTransaction[];
@@ -156,28 +172,6 @@ export class AntiFraudService {
     );
   }
 
-  private async sendNotification(
-    origin: string,
-    message: string,
-  ): Promise<void> {
-    try {
-      const notificationsServiceUrl =
-        this.configService.get<string>('NOTIFICATIONS_MS_URL') ||
-        'http://localhost:3004';
-      await lastValueFrom(
-        this.httpService.post(`${notificationsServiceUrl}/v1/notifications`, {
-          origin: origin,
-          message: message,
-          source: 'ANTI_FRAUD_SERVICE',
-        }),
-      );
-    } catch (error) {
-      this.logger.error(
-        `FAILED to send notification with message ${message} and error`,
-        error,
-      );
-    }
-  }
 
   private async createAlert(
     data: CheckTransactionDto,
@@ -188,11 +182,11 @@ export class AntiFraudService {
         origin: data.origin,
         destination: data.destination,
         amount: data.amount,
+        transactionDate: data.transactionDate, 
         reason: reason,
         status: 'PENDING',
       });
 
-      await this.sendNotification(data.origin, `Fraud Alert: ${reason}`);
       return newAlert;
     } catch (error) {
       this.logger.error(

@@ -11,8 +11,8 @@ services:
     environment:
       - MONGO_URI=${MONGO_DOCKER_URI}
       - MONGO_DB=antifraud_db
+      - ACCOUNTS_MS_URL=${ACCOUNTS_MS_URL}
       - BANK_STATEMENTS_MS_URL=${BANK_STATEMENTS_URL}
-      # Configuración del Circuit Breaker
       - ACCOUNTS_BLOCK_TIMEOUT_MS=3000
     depends_on:
       mongo:
