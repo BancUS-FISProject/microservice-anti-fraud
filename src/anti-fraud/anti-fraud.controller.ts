@@ -1,23 +1,25 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Body, 
-  Param, 
-  HttpCode, 
-  HttpStatus, 
-  ForbiddenException, 
-  ParseIntPipe 
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
-import { EventPattern, Payload } from '@nestjs/microservices';
 import { AntiFraudService } from './anti-fraud.service';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
-import { 
-  ApiOperation, 
-  ApiResponse, 
-  ApiTags, 
-  ApiParam, 
-  ApiBody 
+import { UpdateFraudAlertDto } from './dto/update-fraud-alert.dto';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiParam,
+  ApiBody,
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
 } from '@nestjs/swagger';
 
 @ApiTags('Anti-Fraud')
@@ -26,44 +28,99 @@ export class AntiFraudController {
   constructor(private readonly antiFraudService: AntiFraudService) {}
 
   @Post('fraud-alerts/check')
-  @ApiOperation({ summary: 'Check if a transaction is risky.' })
+  @ApiOperation({ summary: 'Check if a transaction is fraudulent' })
   @ApiBody({
     type: CheckTransactionDto,
     examples: {
       safeCase: {
         summary: 'Example: Safe Transaction',
-        value: { transactionId: 1001, userId: 50, amount: 500, origin: 'ES-111', destination: 'ES-222' }
+        value: {
+          origin: 'ES9601698899486406184873',
+          destination: 'ES3814819892286713210283',
+          amount: 500,
+          transactionDate: '2025-12-26T10:00:00Z',
+        },
       },
       fraudCase: {
         summary: 'Example: Risk Transaction',
-        value: { transactionId: 9999, userId: 666, amount: 2500, origin: 'ES-666', destination: 'KY-OFFSHORE-999' }
-      }
-    }
+        value: {
+          origin: 'ES9601698899486406184873',
+          destination: 'KY-OFFSHORE-999',
+          amount: 2500,
+          transactionDate: '2025-12-26T10:00:00Z',
+        },
+      },
+    },
   })
   @ApiResponse({ status: 200, description: 'Transaction approved.' })
-  @ApiResponse({ status: 403, description: 'Transaction rejected and account blocked.' })
+  @ApiBadRequestResponse({
+    description: 'Bad request: Missing fields or invalid types.',
+  })
   @HttpCode(HttpStatus.OK)
   async checkTransaction(@Body() data: CheckTransactionDto) {
     const isRisky = await this.antiFraudService.checkTransactionRisk(data);
     if (isRisky) {
-      throw new ForbiddenException({ 
-        message: 'Transaction rejected', 
-        code: 'HIGH_RISK' 
-      });
+      return {
+        message: 'Fraudulent behaviour detected.',
+      };
     }
-    return { status: 'APPROVED', message: 'Transaction accepted' };
+    return { message: 'Transaction approved' };
   }
 
-  @EventPattern('transaction_created')
-  async handleTransactionCreated(@Payload() data: CheckTransactionDto) {
-    await this.antiFraudService.checkTransactionHistory(data);
+  @Get('users/:iban/fraud-alerts')
+  @ApiOperation({
+    summary:
+      'Retrieves transaction history alerts for a specific account using the IBAN.',
+    description: 'Returns all alerts where this IBAN/Card was the origin.',
+  })
+  @ApiParam({
+    name: 'iban',
+    example: 'ES4220946904812190707297',
+    description: 'Target Account number',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of alerts retrieved successfully.',
+  })
+  @ApiBadRequestResponse({ description: 'Invalid request format.' })
+  @ApiNotFoundResponse({
+    description: 'No alerts found for the provided IBAN.',
+  })
+  @ApiResponse({ status: 200, description: 'List of alerts retrieved.' })
+  async getAccountAlerts(@Param('iban') iban: string) {
+    return this.antiFraudService.getAlertsForAccount(iban);
   }
 
-  @Get('users/:userId/fraud-alerts')
-  @ApiOperation({ summary: 'Retrieve transaction history to analyze possible past risk transactions' })
-  @ApiParam({ name: 'userId', example: 666, description: 'Target User ID (Numeric)' })
-  @ApiResponse({ status: 200, description: 'List of alerts retrieved successfully.' })
-  async getUserAlerts(@Param('userId', ParseIntPipe) userId: number) {
-    return this.antiFraudService.getAlertsForUser(userId);
+  // PUT /v1/fraud-alerts/:id
+  @Put('fraud-alerts/:id')
+  @ApiOperation({ summary: 'Update an existing fraud alert' })
+  @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
+  @ApiBody({ type: UpdateFraudAlertDto })
+  @ApiResponse({ status: 200, description: 'Alert updated successfully.' })
+  @ApiNotFoundResponse({
+    description: 'Alert not found',
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid ID format.',
+  })
+  async updateAlert(
+    @Param('id') id: string,
+    @Body() updateData: UpdateFraudAlertDto,
+  ) {
+    return this.antiFraudService.updateAlert(id, updateData);
+  }
+
+  // DELETE /v1/fraud-alerts/:id
+  @Delete('fraud-alerts/:id')
+  @ApiOperation({ summary: 'Delete a fraud alert permanently' })
+  @ApiParam({ name: 'id', description: 'MongoDB Object ID of the alert' })
+  @ApiResponse({ status: 200, description: 'Alert deleted successfully.' })
+  @ApiNotFoundResponse({
+    description: 'Alert not found',
+  })
+  @ApiBadRequestResponse({ description: 'Invalid ID format.' })
+  async deleteAlert(@Param('id') id: string) {
+    return this.antiFraudService.deleteAlert(id);
   }
 }

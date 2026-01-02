@@ -3,30 +3,40 @@ import { Document } from 'mongoose';
 
 export type FraudAlertDocument = FraudAlert & Document;
 
-@Schema({ timestamps: true })
+@Schema({
+  collection: 'fraudalerts',
+  timestamps: {
+    createdAt: 'reportDate',
+    updatedAt: 'reportUpdateDate',
+  },
+})
 export class FraudAlert {
-  @Prop({ required: true, index: true })
-  userId: number;
+  @Prop({ required: true })
+  origin: string;
 
   @Prop({ required: true })
-  transactionId: number;
-
-  @Prop({ default: 'SYSTEM_DETECTED' })
-  source: string; // SYSTEM_DETECTED o USER_REPORTED
+  destination: string;
 
   @Prop({ required: true })
-  type: string; // Ej: SUSPICIOUS_ACCOUNT, HIGH_VELOCITY
+  amount: number;
 
   @Prop({ required: true })
-  reason: string; // Descripción del problema
+  transactionDate: Date;
+
+  @Prop({ required: true })
+  reason: string;
 
   @Prop({ default: 'PENDING' })
   status: 'PENDING' | 'REVIEWED' | 'CONFIRMED' | 'FALSE_POSITIVE';
 
-  createdAt?: Date; // Para que el lindt no de error.
+  reportCreationDate?: Date; // Para que el lindt no de error.
+  reportUpdateDate?: Date;
 }
 
 export const FraudAlertSchema = SchemaFactory.createForClass(FraudAlert);
 
 // Un usuario solo puede tener 1 alerta por transacción
-FraudAlertSchema.index({ userId: 1, transactionId: 1 }, { unique: true });
+FraudAlertSchema.index(
+  { origin: 1, destination: 1, amount:1, transactionDate: 1 },
+  { unique: true },
+);

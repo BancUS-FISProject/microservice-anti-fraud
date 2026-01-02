@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AntiFraudModule } from './anti-fraud/anti-fraud.module';
 import { HttpModule } from '@nestjs/axios';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -21,8 +20,9 @@ import { HttpModule } from '@nestjs/axios';
         uri: configService.get<string>('MONGO_URI'),
       }),
     }),
+    HealthModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [],
+  providers: [],
 })
 export class AppModule {}
