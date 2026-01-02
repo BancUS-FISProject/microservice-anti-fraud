@@ -11,12 +11,18 @@ services:
     environment:
       - MONGO_URI=${MONGO_DOCKER_URI}
       - MONGO_DB=antifraud_db
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
       - ACCOUNTS_MS_URL=${ACCOUNTS_MS_URL}
       - BANK_STATEMENTS_MS_URL=${BANK_STATEMENTS_URL}
       - ACCOUNTS_BLOCK_TIMEOUT_MS=3000
+      - REDIS_URL=redis://redis-cache:6379
+      - TRANSACTION_CACHE_TTL_SECONDS=300
     depends_on:
       mongo:
         condition: service_healthy
+      redis-cache:
+        condition: service_started
     networks:
       - bankus-net
     restart: on-failure
@@ -38,6 +44,19 @@ services:
       timeout: 5s     # Si tarda más de 5s, falla
       retries: 5
       start_period: 5s # Dale 5s de gracia al inicio para arrancar
+
+
+  redis-cache:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - bankus-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 
 volumes:

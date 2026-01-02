@@ -3,11 +3,14 @@ import {
   Logger,
   NotFoundException,
   InternalServerErrorException,
+  Inject,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { lastValueFrom } from 'rxjs';
 import CircuitBreaker from 'opossum';
 import { AxiosError } from 'axios';
@@ -42,6 +45,7 @@ export class AntiFraudService {
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
     @InjectModel(TransactionHistoryView.name)
     private historyViewModel: Model<TransactionHistoryViewDocument>,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
@@ -146,73 +150,59 @@ export class AntiFraudService {
   }
 
   private async fetchUserHistory(iban: string): Promise<TransactionItem[]> {
-    const localView = await this.historyViewModel
-      .findOne({ origin: iban })
-      .exec();
-    const MATERIALZZED_VIEW_TIME = 24 * 60 * 60 * 1000;
-    if (localView) {
-      // @ts-expect-error (updatedAt existS altough TS doesn't know it is there).
-      const lastUpdate = new Date(localView.updatedAt).getTime();
-      const now = new Date().getTime();
+    const cacheKey = `history:${iban}`;
 
-      // If the local copy in the MV was updated less than 24 hours ago, we just get the data from
-      // there, skipping the transfer service call.
-      if (now - lastUpdate < MATERIALZZED_VIEW_TIME) {
-        this.logger.log(
-          `Using Materialized view history for ${iban} (Updated < 24h ago)`,
-        );
-        return localView.transactions as unknown as TransactionItem[];
-      }
-
-      this.logger.log(
-        `Materialized view history data for ${iban} is expired (> 24h). Refreshing...`,
-      );
-    } else {
-      this.logger.log(
-        `No Materialized view found for ${iban}. Fetching from external service...`,
-      );
+    // First we try to retrieve the history from cache.
+    const cachedHistory =
+      await this.cacheManager.get<TransactionItem[]>(cacheKey);
+    if (cachedHistory) {
+      this.logger.log(`REDIS HIT: History for ${iban} retrieved from memory.`);
+      return cachedHistory;
     }
 
-    const transactionsServiceUrl =
-      this.configService.get<string>('TRANSFERS_MS_URL') ||
-      'http://microservice-transfers:8000';
-
-    this.logger.log(`Fetching full history for ${iban}...`);
+    this.logger.log(`REDIS MISS: Fetching external data for ${iban}...`);
 
     try {
+      // We try to call the transfer microservice.
+      const transactionsServiceUrl =
+        this.configService.get<string>('TRANSFERS_MS_URL') ||
+        'http://microservice-transfers:8000';
       const response = await lastValueFrom(
         this.httpService.get<TransactionItem[]>(
           `${transactionsServiceUrl}/v1/transactions/user/${iban}`,
         ),
       );
       const transactions = response.data;
-      await this.updateMaterializedView(iban, transactions);
+
+      // Save the data in caché with a ttl of 24 hours.
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      await this.cacheManager.set(cacheKey, transactions, TWENTY_FOUR_HOURS);
+
+      // We save the data in the materialized view for auditory purposes.
+      this.updateMaterializedView(iban, transactions).catch((err) =>
+        this.logger.error('Failed to update Mongo view', err),
+      );
+
       return transactions;
     } catch (error) {
-      // If the transfers microservice fails, we try to get the data from de materialized view.
+      // If the endpoint call fails, we take the data from the materialized view.
       this.logger.warn(
-        `External history service failed. Trying to load from local Materialized View...`,
+        `External API Failed. Trying to rescue data from Mongo Materialized View`,
       );
 
-      if (localView) {
-        this.logger.log(
-          `✅ Loaded ${localView.transactions.length} transactions from local cache (Last updated: ${localView['updatedAt']})`,
-        );
-        return localView.transactions as unknown as TransactionItem[];
+      const mongoView = await this.historyViewModel
+        .findOne({ origin: iban })
+        .exec();
+
+      if (mongoView) {
+        this.logger.log(`Loaded history from persistent backup.`);
+
+        return mongoView.transactions as unknown as TransactionItem[];
       }
 
-      // If we don't have a materialized view for the specified iban, we show this message.
+      // If we don't have any data at all, we just show a not found history message.
       const axiosError = error as AxiosError;
-
-      //  In stead of return a 500 error, we just show 404 in order to
-      //  continue the flux and block the account if that's the case.
-      if (axiosError.response && axiosError.response.status === 404) {
-        this.logger.log(`No history found for IBAN ${iban}.`);
-        return [];
-      }
-      this.logger.error(
-        `Error fetching history from ${transactionsServiceUrl}: ${axiosError.message}`,
-      );
+      if (axiosError.response && axiosError.response.status === 404) return [];
       throw error;
     }
   }
@@ -272,7 +262,7 @@ export class AntiFraudService {
         },
         { upsert: true, new: true }, // Opciones: Create if it doesn't exists.
       );
-      this.logger.log(`💾 Materialized View updated for ${iban}`);
+      this.logger.log(`Materialized View updated for ${iban}`);
     } catch (err) {
       this.logger.error(`Failed to update materialized view`, err);
     }
