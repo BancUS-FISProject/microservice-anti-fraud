@@ -7,6 +7,7 @@ import { lastValueFrom } from 'rxjs';
 import CircuitBreaker from 'opossum';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
+import { TransactionCacheService } from './transaction-cache.service';
 
 @Injectable()
 export class AntiFraudService {
@@ -18,6 +19,7 @@ export class AntiFraudService {
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly transactionCacheService: TransactionCacheService,
   ) {
     this.blockRequestTimeoutMs =
       Number(this.configService.get<number>('ACCOUNTS_BLOCK_TIMEOUT_MS')) ||
@@ -51,13 +53,22 @@ export class AntiFraudService {
   }
 
   async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
+    const cachedDecision = await this.transactionCacheService.getDecision(data);
+    if (cachedDecision !== null) {
+      this.logger.debug(
+        `Cache HIT for transaction ${data.origin} -> ${data.destination} amount=${data.amount}`,
+      );
+      return cachedDecision;
+    }
+
     const isFraud = data.amount > 2000;
     if (isFraud) {
       await this.createAlert(data, 'Transaction denied.');
       await this.blockUserAccount(data.origin);
-      return true;
     }
-    return false;
+
+    await this.transactionCacheService.setDecision(data, isFraud);
+    return isFraud;
   }
 
   async checkTransactionHistory(data: CheckTransactionDto): Promise<void> {

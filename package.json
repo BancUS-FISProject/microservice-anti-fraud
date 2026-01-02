@@ -33,6 +33,7 @@
     "axios": "^1.13.2",
     "mongoose": "^8.20.1",
     "opossum": "^7.1.0",
+    "ioredis": "^5.4.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "swagger-ui-express": "^5.0.1"

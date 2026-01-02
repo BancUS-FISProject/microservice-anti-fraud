@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AntiFraudService } from './anti-fraud.service';
 import { AntiFraudController } from './anti-fraud.controller';
 import { FraudAlert, FraudAlertSchema } from './schemas/fraud-alert.schema';
+import { TransactionCacheService } from './transaction-cache.service';
 
 @Module({
   imports: [
@@ -15,6 +16,6 @@ import { FraudAlert, FraudAlertSchema } from './schemas/fraud-alert.schema';
     ConfigModule,
   ],
   controllers: [AntiFraudController],
-  providers: [AntiFraudService],
+  providers: [AntiFraudService, TransactionCacheService],
 })
 export class AntiFraudModule {}
