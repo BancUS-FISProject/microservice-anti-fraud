@@ -175,8 +175,9 @@ export class AntiFraudService {
       const transactions = response.data;
 
       // Save the data in caché with a ttl of 24 hours.
-      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-      await this.cacheManager.set(cacheKey, transactions, TWENTY_FOUR_HOURS);
+      //const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      const ONE_MINUTE_MS = 60 * 1000;
+      await this.cacheManager.set(cacheKey, transactions, ONE_MINUTE_MS);
 
       // We save the data in the materialized view for auditory purposes.
       this.updateMaterializedView(iban, transactions).catch((err) =>
