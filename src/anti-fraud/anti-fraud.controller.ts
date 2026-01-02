@@ -19,7 +19,7 @@ import {
   ApiParam,
   ApiBody,
   ApiBadRequestResponse,
-  ApiNotFoundResponse
+  ApiNotFoundResponse,
 } from '@nestjs/swagger';
 
 @ApiTags('Anti-Fraud')
@@ -35,19 +35,19 @@ export class AntiFraudController {
       safeCase: {
         summary: 'Example: Safe Transaction',
         value: {
-          origin: 'ES4220946904812190707297',
-          destination: 'ES-222',
+          origin: 'ES9601698899486406184873',
+          destination: 'ES3814819892286713210283',
           amount: 500,
-          transactionDate: '2025-12-26T10:00:00Z'
+          transactionDate: '2025-12-26T10:00:00Z',
         },
       },
       fraudCase: {
         summary: 'Example: Risk Transaction',
         value: {
-          origin: 'ES4220946904812190707297',
+          origin: 'ES9601698899486406184873',
           destination: 'KY-OFFSHORE-999',
           amount: 2500,
-          transactionDate: '2025-12-26T10:00:00Z'
+          transactionDate: '2025-12-26T10:00:00Z',
         },
       },
     },
@@ -60,11 +60,11 @@ export class AntiFraudController {
   async checkTransaction(@Body() data: CheckTransactionDto) {
     const isRisky = await this.antiFraudService.checkTransactionRisk(data);
     if (isRisky) {
-      return { 
-        message: 'Fraudulent behaviour detected.' 
+      return {
+        message: 'Fraudulent behaviour detected.',
       };
     }
-    return {  message: 'Transaction approved' };
+    return { message: 'Transaction approved' };
   }
 
   @Get('users/:iban/fraud-alerts')
@@ -99,10 +99,10 @@ export class AntiFraudController {
   @ApiBody({ type: UpdateFraudAlertDto })
   @ApiResponse({ status: 200, description: 'Alert updated successfully.' })
   @ApiNotFoundResponse({
-    description: 'Alert not found'
+    description: 'Alert not found',
   })
-  @ApiBadRequestResponse({ 
-    description: 'Invalid ID format.' 
+  @ApiBadRequestResponse({
+    description: 'Invalid ID format.',
   })
   async updateAlert(
     @Param('id') id: string,

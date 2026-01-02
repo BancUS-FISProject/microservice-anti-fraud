@@ -3,7 +3,7 @@ import { IsString, IsNumber, IsNotEmpty, IsDateString } from 'class-validator';
 
 export class CheckTransactionDto {
   @ApiProperty({
-    example: 'ES912100...',
+    example: 'ES9601698899486406184873',
     description: 'Source account (IBAN)',
     required: true,
   })
@@ -12,7 +12,7 @@ export class CheckTransactionDto {
   origin: string;
 
   @ApiProperty({
-    example: 'ES910045...',
+    example: 'ES3814819892286713210283',
     description: 'Destination account (IBAN)',
     required: true,
   })
@@ -29,11 +29,14 @@ export class CheckTransactionDto {
   @IsNotEmpty({ message: 'Missing amount field' })
   amount: number;
 
-  @ApiProperty({ 
-    example: '2023-10-27T10:00:00.000Z', 
-    description: 'Date of the transaction' 
+  @ApiProperty({
+    example: '2025-12-26T10:00:00.000Z',
+    description: 'Date of the transaction',
   })
-  @IsDateString({}, { message: 'The field transactionDate must be a valid date' })
-  @IsNotEmpty({ message: 'The field creation date is mandatory.' })
+  @IsDateString(
+    {},
+    { message: 'The field transactionDate must be a valid date' },
+  )
+  @IsNotEmpty({ message: 'The field transactionDate is mandatory.' })
   transactionDate: Date;
 }

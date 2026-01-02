@@ -1,20 +1,31 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { lastValueFrom } from 'rxjs';
 import CircuitBreaker from 'opossum';
+import { AxiosError } from 'axios';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 import { UpdateFraudAlertDto, AlertStatus } from './dto/update-fraud-alert.dto';
 
 //Interfaz para evitar problemas con linter.
-interface HistoryTransaction {
-  amount: number;
-  origin: string;
-  destination: string;
+interface TransactionItem {
+  id: string;
+  currency: string;
   date: string;
+  quantity: number;
+  sender: string;
+  receiver: string;
+  sender_balance: number;
+  receiver_balance: number;
+  status: string;
 }
 
 @Injectable()
@@ -76,29 +87,35 @@ export class AntiFraudService {
         `Suspicious transaction detected: high money amount transferred.`,
       );
       try {
-        const history = await this.fetchUserHistory(data.origin, data.transactionDate);
+        const MONTHS_LOOKBACK = 2;
+        const history = await this.fetchUserHistory(data.origin);
+        const limitDate = new Date(data.transactionDate);
+        limitDate.setMonth(limitDate.getMonth() - MONTHS_LOOKBACK);
 
         // 2. Count how many times this account moved > 2000€
-        // (Assuming history comes as an array of objects with an 'amount' field)
-        const highValueCount = history.filter(
-          (tx: HistoryTransaction) => tx.amount > 2000,
-        ).length;
+        const recentHighValueCount = history.filter((tx: TransactionItem) => {
+          const txDate = new Date(tx.date);
+          const txAmount = tx.quantity;
+          const isRecent = txDate >= limitDate;
+          const isHighAmount = txAmount > 2000;
+
+          return isRecent && isHighAmount;
+        }).length;
 
         this.logger.log(
-          `Found ${highValueCount} previous high-value transactions.`,
+          `Found ${recentHighValueCount} previous high-value transactions.`,
         );
 
-        if (highValueCount >= 2) {
+        if (recentHighValueCount >= 2) {
           this.logger.warn(
-            `REPEATED HIGH VALUE DETECTED (${highValueCount} times). Blocking account.`,
+            `REPEATED HIGH VALUE DETECTED (${recentHighValueCount} times). Blocking account.`,
           );
-
-          /*
-          await this.createAlert(
-            data,
-            `Repeated high transactions (>2000) detected: ${highValueCount + 1} times`,
-          );
-          */
+          if (initialAlert) {
+            await this.updateAlert(initialAlert._id.toString(), {
+              status: AlertStatus.CONFIRMED,
+              reason: `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
+            });
+          }
           await this.blockUserAccount(data.origin);
           return true;
         }
@@ -108,51 +125,45 @@ export class AntiFraudService {
         this.logger.error(
           `Failed to fetch history during check. Error: ${errMessage}`,
         );
-        //Tenemos 2 opciones si falla historial:
-
-        //OPCION 1 - Devolver error 500
-        //throw new InternalServerErrorException('Could not verify transaction history');
-
-        // OPCION 2 - Bloqueo preventivo.
-        if(initialAlert){
+        if (initialAlert) {
           await this.updateAlert(initialAlert._id.toString(), {
-          reason: `High transaction amount detected and bank-statements service unavailable. Error: ${errMessage}`,
-          status: AlertStatus.REVIEWED
-        });
+            reason: `High transaction amount detected and unable to retrieve previous records. Error: ${errMessage}`,
+            status: AlertStatus.REVIEWED,
+          });
         }
-        
-        await this.blockUserAccount(data.origin);
-        return true;
+        throw new InternalServerErrorException(
+          'Could not verify transaction history',
+        );
       }
     }
     return false;
   }
 
-  private async fetchUserHistory(iban: string, transactionDate: Date | string): Promise<HistoryTransaction[]> {
-    const bankStatementsUrl =
-      this.configService.get<string>('BANK_STATEMENTS_MS_URL') ||
-      'http://microservice-bank-statements:8000';
+  private async fetchUserHistory(iban: string): Promise<TransactionItem[]> {
+    const transactionsServiceUrl =
+      this.configService.get<string>('TRANSFERS_MS_URL') ||
+      'http://microservice-transfers:8000';
 
-    const dateObj = new Date(transactionDate);
-    const year = dateObj.getFullYear();
-    // getMonth() devuelve de 0 a 11, así que sumamos 1 y rellenamos con '0' a la izquierda
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const monthParam = `${year}-${month}`;
-    this.logger.log(`Fetching history for ${iban} in month ${monthParam}`);
+    this.logger.log(`Fetching full history for ${iban}...`);
 
-    const response = await lastValueFrom(
-        this.httpService.get<HistoryTransaction[]>(
-          `${bankStatementsUrl}/v1/bankstatements/by-iban`, 
-          {
-            params: {
-              iban: iban,
-              month: monthParam
-            }
-          }
+    try {
+      const response = await lastValueFrom(
+        this.httpService.get<TransactionItem[]>(
+          `${transactionsServiceUrl}/v1/transactions/user/${iban}`,
         ),
-    );
-
-    return response.data as HistoryTransaction[];
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      if (axiosError.response && axiosError.response.status === 404) {
+        this.logger.log(`No history found for IBAN ${iban}.`);
+        return [];
+      }
+      this.logger.error(
+        `Error fetching history from ${transactionsServiceUrl}: ${axiosError.message}`,
+      );
+      throw error;
+    }
   }
 
   private async blockUserAccount(iban: string): Promise<void> {
@@ -172,7 +183,6 @@ export class AntiFraudService {
     );
   }
 
-
   private async createAlert(
     data: CheckTransactionDto,
     reason: string,
@@ -182,7 +192,7 @@ export class AntiFraudService {
         origin: data.origin,
         destination: data.destination,
         amount: data.amount,
-        transactionDate: data.transactionDate, 
+        transactionDate: data.transactionDate,
         reason: reason,
         status: 'PENDING',
       });
