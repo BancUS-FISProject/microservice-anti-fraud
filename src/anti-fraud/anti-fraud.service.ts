@@ -14,6 +14,10 @@ import { AxiosError } from 'axios';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 import { UpdateFraudAlertDto, AlertStatus } from './dto/update-fraud-alert.dto';
+import {
+  TransactionHistoryView,
+  TransactionHistoryViewDocument,
+} from './schemas/transaction-history.view.schema';
 
 //Interfaz para evitar problemas con linter.
 interface TransactionItem {
@@ -36,6 +40,8 @@ export class AntiFraudService {
 
   constructor(
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
+    @InjectModel(TransactionHistoryView.name)
+    private historyViewModel: Model<TransactionHistoryViewDocument>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
@@ -140,6 +146,33 @@ export class AntiFraudService {
   }
 
   private async fetchUserHistory(iban: string): Promise<TransactionItem[]> {
+    const localView = await this.historyViewModel
+      .findOne({ origin: iban })
+      .exec();
+    const MATERIALZZED_VIEW_TIME = 24 * 60 * 60 * 1000;
+    if (localView) {
+      // @ts-expect-error (updatedAt existS altough TS doesn't know it is there).
+      const lastUpdate = new Date(localView.updatedAt).getTime();
+      const now = new Date().getTime();
+
+      // If the local copy in the MV was updated less than 24 hours ago, we just get the data from
+      // there, skipping the transfer service call.
+      if (now - lastUpdate < MATERIALZZED_VIEW_TIME) {
+        this.logger.log(
+          `Using Materialized view history for ${iban} (Updated < 24h ago)`,
+        );
+        return localView.transactions as unknown as TransactionItem[];
+      }
+
+      this.logger.log(
+        `Materialized view history data for ${iban} is expired (> 24h). Refreshing...`,
+      );
+    } else {
+      this.logger.log(
+        `No Materialized view found for ${iban}. Fetching from external service...`,
+      );
+    }
+
     const transactionsServiceUrl =
       this.configService.get<string>('TRANSFERS_MS_URL') ||
       'http://microservice-transfers:8000';
@@ -152,9 +185,27 @@ export class AntiFraudService {
           `${transactionsServiceUrl}/v1/transactions/user/${iban}`,
         ),
       );
-      return response.data;
+      const transactions = response.data;
+      await this.updateMaterializedView(iban, transactions);
+      return transactions;
     } catch (error) {
+      // If the transfers microservice fails, we try to get the data from de materialized view.
+      this.logger.warn(
+        `External history service failed. Trying to load from local Materialized View...`,
+      );
+
+      if (localView) {
+        this.logger.log(
+          `✅ Loaded ${localView.transactions.length} transactions from local cache (Last updated: ${localView['updatedAt']})`,
+        );
+        return localView.transactions as unknown as TransactionItem[];
+      }
+
+      // If we don't have a materialized view for the specified iban, we show this message.
       const axiosError = error as AxiosError;
+
+      //  In stead of return a 500 error, we just show 404 in order to
+      //  continue the flux and block the account if that's the case.
       if (axiosError.response && axiosError.response.status === 404) {
         this.logger.log(`No history found for IBAN ${iban}.`);
         return [];
@@ -204,6 +255,26 @@ export class AntiFraudService {
         error,
       );
       return null;
+    }
+  }
+
+  // Materialized view function
+  private async updateMaterializedView(
+    iban: string,
+    transactions: TransactionItem[],
+  ) {
+    try {
+      await this.historyViewModel.findOneAndUpdate(
+        { origin: iban },
+        {
+          origin: iban,
+          transactions: transactions,
+        },
+        { upsert: true, new: true }, // Opciones: Create if it doesn't exists.
+      );
+      this.logger.log(`💾 Materialized View updated for ${iban}`);
+    } catch (err) {
+      this.logger.error(`Failed to update materialized view`, err);
     }
   }
 
