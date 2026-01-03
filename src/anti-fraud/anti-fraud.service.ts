@@ -4,6 +4,7 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Inject,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -18,9 +19,9 @@ import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 import { UpdateFraudAlertDto, AlertStatus } from './dto/update-fraud-alert.dto';
 import {
-  TransactionHistoryView,
-  TransactionHistoryViewDocument,
-} from './schemas/transaction-history.view.schema';
+  AccountView,
+  AccountViewDocument,
+} from './schemas/account.view.schema';
 
 //Interfaz para evitar problemas con linter.
 interface TransactionItem {
@@ -35,6 +36,18 @@ interface TransactionItem {
   status: string;
 }
 
+interface AccountItem {
+  iban: string;
+  isBlocked?: string;
+}
+
+interface AccountsResponse {
+  items: AccountItem[];
+  page: number;
+  size: number;
+  total: number;
+}
+
 @Injectable()
 export class AntiFraudService {
   private readonly logger = new Logger(AntiFraudService.name);
@@ -43,8 +56,8 @@ export class AntiFraudService {
 
   constructor(
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
-    @InjectModel(TransactionHistoryView.name)
-    private historyViewModel: Model<TransactionHistoryViewDocument>,
+    @InjectModel(AccountView.name)
+    private accountViewModel: Model<AccountViewDocument>,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
@@ -86,6 +99,16 @@ export class AntiFraudService {
     this.logger.log(
       `Analyzing Transaction: ${data.amount}€ | Origin: ${data.origin}`,
     );
+    const accountExists = await this.validateAccountExists(data.origin);
+    if (!accountExists) {
+      this.logger.log(
+        `Transaction analisys aborted: Origin account ${data.origin} does not exist in the system.`,
+      );
+      throw new BadRequestException(
+        `Origin account ${data.origin} is not a valid account in our system.`,
+      );
+    }
+
     const isSuspicious = data.amount > 2000;
     if (isSuspicious) {
       this.logger.log(
@@ -149,6 +172,57 @@ export class AntiFraudService {
     return false;
   }
 
+  private async validateAccountExists(iban: string): Promise<boolean> {
+    // 1. We try to retrieve the data from the materialized view
+    const localAccount = await this.accountViewModel.findOne({ iban }).exec();
+    if (localAccount) return true;
+
+    // 2. If we don't find it, we update the MV calling the endpoint.
+    this.logger.log(
+      `Account ${iban} not found in materialized view. Retrieving accounts from accounts microservice.`,
+    );
+    try {
+      await this.syncMaterializedView();
+
+      // Once the MV is updated, we try to look up for the account in the view again.
+      const recheck = await this.accountViewModel.findOne({ iban }).exec();
+      return Boolean(recheck);
+    } catch (error) {
+      // If the service is not working, we assume the account exists to avoid possible fraud problems.
+      this.logger.error(
+        `Sync failed. Assuming account does not exists.`,
+        error,
+      );
+      return true;
+    }
+  }
+
+  private async syncMaterializedView(): Promise<void> {
+    const accountsServiceUrl =
+      this.configService.get<string>('ACCOUNTS_MS_URL') ||
+      'http://accounts-microservice:8000';
+    const response = await lastValueFrom(
+      this.httpService.get<AccountsResponse>(
+        `${accountsServiceUrl}/v1/accounts`,
+      ),
+    );
+    const accounts = response.data.items;
+
+    if (!accounts?.length) return;
+
+    // Update old registers and add new ones to the MV.
+    const ops = accounts.map((acc) => ({
+      updateOne: {
+        filter: { iban: acc.iban },
+        update: { $set: { iban: acc.iban, status: acc.isBlocked } },
+        upsert: true,
+      },
+    }));
+
+    await this.accountViewModel.bulkWrite(ops);
+    this.logger.log(`${ops.length} accounts syncronized .`);
+  }
+
   private async fetchUserHistory(iban: string): Promise<TransactionItem[]> {
     const cacheKey = `history:${iban}`;
 
@@ -178,30 +252,11 @@ export class AntiFraudService {
       //const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
       const ONE_MINUTE_MS = 60 * 1000;
       await this.cacheManager.set(cacheKey, transactions, ONE_MINUTE_MS);
-
-      // We save the data in the materialized view for auditory purposes.
-      this.updateMaterializedView(iban, transactions).catch((err) =>
-        this.logger.error('Failed to update Mongo view', err),
-      );
-
       return transactions;
     } catch (error) {
-      // If the endpoint call fails, we take the data from the materialized view.
-      this.logger.warn(
-        `External API Failed. Trying to rescue data from Mongo Materialized View`,
-      );
-
-      const mongoView = await this.historyViewModel
-        .findOne({ origin: iban })
-        .exec();
-
-      if (mongoView) {
-        this.logger.log(`Loaded history from persistent backup.`);
-
-        return mongoView.transactions as unknown as TransactionItem[];
-      }
-
-      // If we don't have any data at all, we just show a not found history message.
+      const errMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to fetch history. Error: ${errMessage}`);
       const axiosError = error as AxiosError;
       if (axiosError.response && axiosError.response.status === 404) return [];
       throw error;
@@ -246,26 +301,6 @@ export class AntiFraudService {
         error,
       );
       return null;
-    }
-  }
-
-  // Materialized view function
-  private async updateMaterializedView(
-    iban: string,
-    transactions: TransactionItem[],
-  ) {
-    try {
-      await this.historyViewModel.findOneAndUpdate(
-        { origin: iban },
-        {
-          origin: iban,
-          transactions: transactions,
-        },
-        { upsert: true, new: true }, // Opciones: Create if it doesn't exists.
-      );
-      this.logger.log(`Materialized View updated for ${iban}`);
-    } catch (err) {
-      this.logger.error(`Failed to update materialized view`, err);
     }
   }
 
