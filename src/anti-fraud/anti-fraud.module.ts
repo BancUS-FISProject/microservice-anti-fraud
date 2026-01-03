@@ -7,19 +7,13 @@ import * as redisStore from 'cache-manager-redis-store';
 import { AntiFraudService } from './anti-fraud.service';
 import { AntiFraudController } from './anti-fraud.controller';
 import { FraudAlert, FraudAlertSchema } from './schemas/fraud-alert.schema';
-import {
-  TransactionHistoryView,
-  TransactionHistoryViewSchema,
-} from './schemas/transaction-history.view.schema';
+import { AccountView, AccountViewSchema } from './schemas/account.view.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: FraudAlert.name, schema: FraudAlertSchema },
-      {
-        name: TransactionHistoryView.name,
-        schema: TransactionHistoryViewSchema,
-      },
+      { name: AccountView.name, schema: AccountViewSchema },
     ]),
     HttpModule,
     ConfigModule,
