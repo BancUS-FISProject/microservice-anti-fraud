@@ -23,11 +23,11 @@ import {
 } from '@nestjs/swagger';
 
 @ApiTags('Anti-Fraud')
-@Controller('v1')
+@Controller('v1/antifraud')
 export class AntiFraudController {
   constructor(private readonly antiFraudService: AntiFraudService) {}
 
-  @Post('fraud-alerts/check')
+  @Post('transaction-check')
   @ApiOperation({ summary: 'Check if a transaction is fraudulent' })
   @ApiBody({
     type: CheckTransactionDto,
@@ -67,7 +67,7 @@ export class AntiFraudController {
     return { message: 'Transaction approved' };
   }
 
-  @Get('users/:iban/fraud-alerts')
+  @Get('accounts/:iban/fraud-alerts')
   @ApiOperation({
     summary:
       'Retrieves transaction history alerts for a specific account using the IBAN.',
