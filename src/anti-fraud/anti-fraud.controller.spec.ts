@@ -28,7 +28,7 @@ describe('AntiFraudController', () => {
 
     controller = module.get<AntiFraudController>(AntiFraudController);
     service = module.get<AntiFraudService>(AntiFraudService);
-    
+
     // Limpiamos los mocks antes de cada test para que no se mezclen llamadas
     jest.clearAllMocks();
   });
@@ -94,7 +94,7 @@ describe('AntiFraudController', () => {
     it('should update an alert', async () => {
       const dto: UpdateFraudAlertDto = { status: AlertStatus.CONFIRMED };
       const updated = { id: '1', ...dto };
-      
+
       mockAntiFraudService.updateAlert.mockResolvedValue(updated);
 
       const result = await controller.updateAlert('1', dto);

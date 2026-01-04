@@ -16,8 +16,12 @@ describe('AntiFraudService', () => {
   // Mocks
   let httpServiceMock: { get: jest.Mock; patch: jest.Mock; post: jest.Mock };
   let cacheManagerMock: { get: jest.Mock; set: jest.Mock };
-  let fraudAlertModelMock: { create: jest.Mock; find: jest.Mock; findByIdAndUpdate: jest.Mock; findByIdAndDelete: jest.Mock };
-  let historyViewModelMock: { findOne: jest.Mock; findOneAndUpdate: jest.Mock };
+  let fraudAlertModelMock: {
+    create: jest.Mock;
+    find: jest.Mock;
+    findByIdAndUpdate: jest.Mock;
+    findByIdAndDelete: jest.Mock;
+  };
   let accountViewModelMock: { findOne: jest.Mock; bulkWrite: jest.Mock };
 
   beforeEach(async () => {
@@ -33,15 +37,14 @@ describe('AntiFraudService', () => {
     };
 
     fraudAlertModelMock = {
-      create: jest.fn().mockImplementation((dto) => Promise.resolve({ _id: 'new_alert_id', ...dto })),
+      create: jest
+        .fn()
+        .mockImplementation((dto) =>
+          Promise.resolve({ _id: 'new_alert_id', ...dto }),
+        ),
       find: jest.fn(),
       findByIdAndUpdate: jest.fn(),
       findByIdAndDelete: jest.fn(),
-    };
-
-    historyViewModelMock = {
-      findOne: jest.fn(),
-      findOneAndUpdate: jest.fn(),
     };
 
     accountViewModelMock = {
@@ -52,8 +55,14 @@ describe('AntiFraudService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AntiFraudService,
-        { provide: getModelToken(FraudAlert.name), useValue: fraudAlertModelMock },
-        { provide: getModelToken(AccountView.name), useValue: accountViewModelMock },
+        {
+          provide: getModelToken(FraudAlert.name),
+          useValue: fraudAlertModelMock,
+        },
+        {
+          provide: getModelToken(AccountView.name),
+          useValue: accountViewModelMock,
+        },
         { provide: HttpService, useValue: httpServiceMock },
         { provide: CACHE_MANAGER, useValue: cacheManagerMock },
         {
@@ -83,42 +92,53 @@ describe('AntiFraudService', () => {
 
     it('should throw BadRequestException if account does not exist locally or remotely', async () => {
       // Mock: No en local
-      accountViewModelMock.findOne.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
+      accountViewModelMock.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
       // Mock: No en remoto (lista vacía)
       httpServiceMock.get.mockReturnValue(of({ data: [] }));
 
-      await expect(service.checkTransactionRisk(validDto))
-        .rejects.toThrow(BadRequestException);
+      await expect(service.checkTransactionRisk(validDto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should approve transaction if amount <= 2000 (Safe)', async () => {
       // Mock: Account exists.
-      accountViewModelMock.findOne.mockReturnValue({ exec: jest.fn().mockResolvedValue({ iban: 'ES123' }) });
+      accountViewModelMock.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ iban: 'ES123' }),
+      });
 
       const result = await service.checkTransactionRisk(validDto);
 
       expect(result).toBe(false); // False = No risk
-      expect(httpServiceMock.get).not.toHaveBeenCalledWith(expect.stringContaining('/transactions/'));
+      expect(httpServiceMock.get).not.toHaveBeenCalledWith(
+        expect.stringContaining('/transactions/'),
+      );
     });
 
     it('should block account if amount > 2000 AND pattern found', async () => {
       const riskyDto = { ...validDto, amount: 5000 };
-      
+
       // Account exists
-      accountViewModelMock.findOne.mockReturnValue({ exec: jest.fn().mockResolvedValue({ iban: 'ES123' }) });
-      
+      accountViewModelMock.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ iban: 'ES123' }),
+      });
+
       // Fraudulent history.
       const pastTransactions = [
         { date: new Date().toISOString(), quantity: 5000 },
         { date: new Date().toISOString(), quantity: 3000 },
       ];
-      
+
       // Cache miss -> API call
       cacheManagerMock.get.mockResolvedValue(null);
       httpServiceMock.get.mockReturnValueOnce(of({ data: pastTransactions }));
-      
+
       // Mock update alert
-      fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({ exec: jest.fn().mockResolvedValue({}) });
+      fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({}),
+      });
 
       const result = await service.checkTransactionRisk(riskyDto);
 
@@ -132,17 +152,22 @@ describe('AntiFraudService', () => {
   describe('getAlertsForAccount', () => {
     it('should return alerts if found', async () => {
       const mockAlerts = [{ _id: '1', origin: 'ES123' }];
-      fraudAlertModelMock.find.mockReturnValue({ exec: jest.fn().mockResolvedValue(mockAlerts) });
+      fraudAlertModelMock.find.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockAlerts),
+      });
 
       const result = await service.getAlertsForAccount('ES123');
       expect(result).toEqual(mockAlerts);
     });
 
     it('should throw NotFoundException if no alerts found', async () => {
-      fraudAlertModelMock.find.mockReturnValue({ exec: jest.fn().mockResolvedValue([]) });
+      fraudAlertModelMock.find.mockReturnValue({
+        exec: jest.fn().mockResolvedValue([]),
+      });
 
-      await expect(service.getAlertsForAccount('ES123'))
-        .rejects.toThrow(NotFoundException);
+      await expect(service.getAlertsForAccount('ES123')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -152,9 +177,9 @@ describe('AntiFraudService', () => {
     it('should update and return alert if exists', async () => {
       const updateDto = { status: AlertStatus.CONFIRMED };
       const updatedAlert = { _id: '1', ...updateDto };
-      
-      fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({ 
-        exec: jest.fn().mockResolvedValue(updatedAlert) 
+
+      fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(updatedAlert),
       });
 
       const result = await service.updateAlert('1', updateDto);
@@ -166,21 +191,23 @@ describe('AntiFraudService', () => {
 
   describe('deleteAlert', () => {
     it('should return success message if deleted', async () => {
-      fraudAlertModelMock.findByIdAndDelete.mockReturnValue({ 
-        exec: jest.fn().mockResolvedValue({ _id: '1' }) 
+      fraudAlertModelMock.findByIdAndDelete.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ _id: '1' }),
       });
 
       const result = await service.deleteAlert('1');
-      expect(result).toEqual({ message: 'Alert deleted successfully', id: '1' });
+      expect(result).toEqual({
+        message: 'Alert deleted successfully',
+        id: '1',
+      });
     });
 
     it('should throw NotFoundException if alert not found', async () => {
-      fraudAlertModelMock.findByIdAndDelete.mockReturnValue({ 
-        exec: jest.fn().mockResolvedValue(null) 
+      fraudAlertModelMock.findByIdAndDelete.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
       });
 
-      await expect(service.deleteAlert('1'))
-        .rejects.toThrow(NotFoundException);
+      await expect(service.deleteAlert('1')).rejects.toThrow(NotFoundException);
     });
   });
 });
