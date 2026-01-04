@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { HealthService } from './health/health.service';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -35,4 +35,7 @@ async function bootstrap() {
   const health = app.get(HealthService);
   health.markReady();
 }
-bootstrap();
+bootstrap().catch((error: unknown) => {
+  Logger.log('Error starting server', error);
+  process.exit(1);
+});

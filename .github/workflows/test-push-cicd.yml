@@ -37,8 +37,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      #- name: Run unit tests
-      #  run: npm test -- --runInBand
+      - name: Run Unit Tests
+        run: npm run test
+
+      - name: Run E2E Tests
+        run: npm run test:e2e
 
       - name: Build app
         run: npm run build

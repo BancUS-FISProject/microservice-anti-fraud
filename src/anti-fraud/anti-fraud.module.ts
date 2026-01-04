@@ -19,7 +19,7 @@ import { AccountView, AccountViewSchema } from './schemas/account.view.schema';
     ConfigModule,
     CacheModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
+      useFactory: (configService: ConfigService) => ({
         store: redisStore,
         host: configService.get<string>('REDIS_HOST') || 'redis',
         port: configService.get<number>('REDIS_PORT') || 6379,
