@@ -200,7 +200,7 @@ export class AntiFraudService {
   private async syncMaterializedView(): Promise<void> {
     const accountsServiceUrl =
       this.configService.get<string>('ACCOUNTS_MS_URL') ||
-      'http://accounts-microservice:8000';
+      'http://microservice-accounts:8000';
     const response = await lastValueFrom(
       this.httpService.get<AccountsResponse>(
         `${accountsServiceUrl}/v1/accounts`,
