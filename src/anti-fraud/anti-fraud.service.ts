@@ -8,7 +8,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, isValidObjectId } from 'mongoose';
+import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -351,9 +351,6 @@ export class AntiFraudService {
 
   // PUT - Update registered alert's data.
   async updateAlert(id: string, updateData: UpdateFraudAlertDto) {
-    if (!isValidObjectId(id)) {
-      throw new BadRequestException(`Invalid ID format: ${id}`);
-    }
     this.logger.log(
       `Updating alert ${id} with data: ${JSON.stringify(updateData)}`,
     );
