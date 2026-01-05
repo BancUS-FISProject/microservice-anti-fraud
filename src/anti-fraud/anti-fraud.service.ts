@@ -8,7 +8,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, isValidObjectId } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -141,8 +141,8 @@ export class AntiFraudService {
         );
 
         if (recentHighValueCount >= 2) {
-          this.logger.warn(
-            `REPEATED HIGH VALUE DETECTED (${recentHighValueCount} times). Blocking account.`,
+          this.logger.log(
+            `REPEATED TRANSFERS WITH HIGH VALUE DETECTED (${recentHighValueCount} times). Blocking account.`,
           );
           if (initialAlert) {
             await this.updateAlert(initialAlert._id.toString(), {
@@ -150,11 +150,11 @@ export class AntiFraudService {
               reason: `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
             });
           }
+          await this.blockUserAccount(data.origin);
           await this.notificateUser(
             data.origin,
-            `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
+            ` Account blocked: several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
           );
-          await this.blockUserAccount(data.origin);
           return true;
         }
       } catch (error) {
@@ -351,6 +351,9 @@ export class AntiFraudService {
 
   // PUT - Update registered alert's data.
   async updateAlert(id: string, updateData: UpdateFraudAlertDto) {
+    if (!isValidObjectId(id)) {
+      throw new BadRequestException(`Invalid ID format: ${id}`);
+    }
     this.logger.log(
       `Updating alert ${id} with data: ${JSON.stringify(updateData)}`,
     );
