@@ -150,6 +150,10 @@ export class AntiFraudService {
               reason: `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
             });
           }
+          await this.notificateUser(
+            data.origin,
+            `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
+          );
           await this.blockUserAccount(data.origin);
           return true;
         }
@@ -266,6 +270,35 @@ export class AntiFraudService {
 
   private async blockUserAccount(iban: string): Promise<void> {
     await this.blockAccountBreaker.fire(iban);
+  }
+
+  private async notificateUser(iban: string, reason: string): Promise<void> {
+    const notificationsServiceUrl =
+      this.configService.get<string>('NOTIFICATIONS_MS_URL') ||
+      'http://microservice-notifications:8000';
+
+    const payload = {
+      userId: iban,
+      type: 'fraud-detected',
+      metadata: {
+        reason: reason,
+        account: iban,
+      },
+    };
+    try {
+      await lastValueFrom(
+        this.httpService.post(
+          `${notificationsServiceUrl}/v1/notifications/events`,
+          payload,
+        ),
+      );
+      this.logger.log(`Notification sent for account ${iban}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send notification for account ${iban}: ${error.message}`,
+        error.stack,
+      );
+    }
   }
 
   private async performBlockRequest(iban: string): Promise<void> {
