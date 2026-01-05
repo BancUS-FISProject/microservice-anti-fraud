@@ -1,19 +1,28 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
   Logger,
   NotFoundException,
   InternalServerErrorException,
+  Inject,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { lastValueFrom } from 'rxjs';
 import CircuitBreaker from 'opossum';
 import { AxiosError } from 'axios';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
 import { FraudAlert, FraudAlertDocument } from './schemas/fraud-alert.schema';
 import { UpdateFraudAlertDto, AlertStatus } from './dto/update-fraud-alert.dto';
+import {
+  AccountView,
+  AccountViewDocument,
+} from './schemas/account.view.schema';
 
 //Interfaz para evitar problemas con linter.
 interface TransactionItem {
@@ -28,6 +37,18 @@ interface TransactionItem {
   status: string;
 }
 
+interface AccountItem {
+  iban: string;
+  isBlocked?: string;
+}
+
+interface AccountsResponse {
+  items: AccountItem[];
+  page: number;
+  size: number;
+  total: number;
+}
+
 @Injectable()
 export class AntiFraudService {
   private readonly logger = new Logger(AntiFraudService.name);
@@ -36,6 +57,9 @@ export class AntiFraudService {
 
   constructor(
     @InjectModel(FraudAlert.name) private alertModel: Model<FraudAlertDocument>,
+    @InjectModel(AccountView.name)
+    private accountViewModel: Model<AccountViewDocument>,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
@@ -76,6 +100,16 @@ export class AntiFraudService {
     this.logger.log(
       `Analyzing Transaction: ${data.amount}€ | Origin: ${data.origin}`,
     );
+    const accountExists = await this.validateAccountExists(data.origin);
+    if (!accountExists) {
+      this.logger.log(
+        `Transaction analisys aborted: Origin account ${data.origin} does not exist in the system.`,
+      );
+      throw new BadRequestException(
+        `Origin account ${data.origin} is not a valid account in our system.`,
+      );
+    }
+
     const isSuspicious = data.amount > 2000;
     if (isSuspicious) {
       this.logger.log(
@@ -116,6 +150,10 @@ export class AntiFraudService {
               reason: `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
             });
           }
+          await this.notificateUser(
+            data.origin,
+            `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
+          );
           await this.blockUserAccount(data.origin);
           return true;
         }
@@ -139,35 +177,128 @@ export class AntiFraudService {
     return false;
   }
 
-  private async fetchUserHistory(iban: string): Promise<TransactionItem[]> {
-    const transactionsServiceUrl =
-      this.configService.get<string>('TRANSFERS_MS_URL') ||
-      'http://microservice-transfers:8000';
+  private async validateAccountExists(iban: string): Promise<boolean> {
+    // 1. We try to retrieve the data from the materialized view
+    const localAccount = await this.accountViewModel.findOne({ iban }).exec();
+    if (localAccount) return true;
 
-    this.logger.log(`Fetching full history for ${iban}...`);
+    // 2. If we don't find it, we update the MV calling the endpoint.
+    this.logger.log(
+      `Account ${iban} not found in materialized view. Retrieving accounts from accounts microservice.`,
+    );
+    try {
+      await this.syncMaterializedView();
+
+      // Once the MV is updated, we try to look up for the account in the view again.
+      const recheck = await this.accountViewModel.findOne({ iban }).exec();
+      return Boolean(recheck);
+    } catch (error) {
+      // If the service is not working, we assume the account exists to avoid possible fraud problems.
+      this.logger.error(
+        `Sync failed. Assuming account does not exists.`,
+        error,
+      );
+      return true;
+    }
+  }
+
+  private async syncMaterializedView(): Promise<void> {
+    const accountsServiceUrl =
+      this.configService.get<string>('ACCOUNTS_MS_URL') ||
+      'http://microservice-accounts:8000';
+    const response = await lastValueFrom(
+      this.httpService.get<AccountsResponse>(
+        `${accountsServiceUrl}/v1/accounts`,
+      ),
+    );
+    const accounts = response.data.items;
+
+    if (!accounts?.length) return;
+
+    // Update old registers and add new ones to the MV.
+    const ops = accounts.map((acc) => ({
+      updateOne: {
+        filter: { iban: acc.iban },
+        update: { $set: { iban: acc.iban, status: acc.isBlocked } },
+        upsert: true,
+      },
+    }));
+
+    await this.accountViewModel.bulkWrite(ops);
+    this.logger.log(`${ops.length} accounts syncronized .`);
+  }
+
+  private async fetchUserHistory(iban: string): Promise<TransactionItem[]> {
+    const cacheKey = `history:${iban}`;
+
+    // First we try to retrieve the history from cache.
+    const cachedHistory =
+      await this.cacheManager.get<TransactionItem[]>(cacheKey);
+    if (cachedHistory) {
+      this.logger.log(`REDIS HIT: History for ${iban} retrieved from memory.`);
+      return cachedHistory;
+    }
+
+    this.logger.log(`REDIS MISS: Fetching external data for ${iban}...`);
 
     try {
+      // We try to call the transfer microservice.
+      const transactionsServiceUrl =
+        this.configService.get<string>('TRANSFERS_MS_URL') ||
+        'http://microservice-transfers:8000';
       const response = await lastValueFrom(
         this.httpService.get<TransactionItem[]>(
           `${transactionsServiceUrl}/v1/transactions/user/${iban}`,
         ),
       );
-      return response.data;
+      const transactions = response.data;
+
+      // Save the data in caché with a ttl of 24 hours.
+      //const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      const ONE_MINUTE_MS = 60 * 1000;
+      await this.cacheManager.set(cacheKey, transactions, ONE_MINUTE_MS);
+      return transactions;
     } catch (error) {
+      const errMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to fetch history. Error: ${errMessage}`);
       const axiosError = error as AxiosError;
-      if (axiosError.response && axiosError.response.status === 404) {
-        this.logger.log(`No history found for IBAN ${iban}.`);
-        return [];
-      }
-      this.logger.error(
-        `Error fetching history from ${transactionsServiceUrl}: ${axiosError.message}`,
-      );
+      if (axiosError.response && axiosError.response.status === 404) return [];
       throw error;
     }
   }
 
   private async blockUserAccount(iban: string): Promise<void> {
     await this.blockAccountBreaker.fire(iban);
+  }
+
+  private async notificateUser(iban: string, reason: string): Promise<void> {
+    const notificationsServiceUrl =
+      this.configService.get<string>('NOTIFICATIONS_MS_URL') ||
+      'http://microservice-notifications:8000';
+
+    const payload = {
+      userId: iban,
+      type: 'fraud-detected',
+      metadata: {
+        reason: reason,
+        account: iban,
+      },
+    };
+    try {
+      await lastValueFrom(
+        this.httpService.post(
+          `${notificationsServiceUrl}/v1/notifications/events`,
+          payload,
+        ),
+      );
+      this.logger.log(`Notification sent for account ${iban}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send notification for account ${iban}: ${error.message}`,
+        error.stack,
+      );
+    }
   }
 
   private async performBlockRequest(iban: string): Promise<void> {
