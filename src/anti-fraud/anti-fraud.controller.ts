@@ -8,6 +8,8 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  Headers,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AntiFraudService } from './anti-fraud.service';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
@@ -52,19 +54,34 @@ export class AntiFraudController {
       },
     },
   })
-  @ApiResponse({ status: 200, description: 'Transaction approved.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Risk analysis completed',
+    schema: {
+      example: { message: 'No risk detected' },
+    },
+  })
   @ApiBadRequestResponse({
     description: 'Bad request: Missing fields or invalid types.',
   })
   @HttpCode(HttpStatus.OK)
-  async checkTransaction(@Body() data: CheckTransactionDto) {
-    const isRisky = await this.antiFraudService.checkTransactionRisk(data);
+  async checkTransaction(
+    @Body() data: CheckTransactionDto,
+    @Headers('authorization') authHeader: string,
+  ) {
+    if (!authHeader) {
+      throw new UnauthorizedException('Authorization header is missing');
+    }
+    const isRisky = await this.antiFraudService.checkTransactionRisk(
+      data,
+      authHeader,
+    );
     if (isRisky) {
       return {
         message: 'Fraudulent behaviour detected.',
       };
     }
-    return { message: 'Transaction approved' };
+    return { message: 'No risk detected' };
   }
 
   @Get('accounts/:iban/fraud-alerts')
