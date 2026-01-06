@@ -6,7 +6,10 @@ import {
   InternalServerErrorException,
   Inject,
   BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { jwtDecode } from 'jwt-decode';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { HttpService } from '@nestjs/axios';
@@ -52,7 +55,7 @@ interface AccountsResponse {
 @Injectable()
 export class AntiFraudService {
   private readonly logger = new Logger(AntiFraudService.name);
-  private readonly blockAccountBreaker: CircuitBreaker<[string], void>;
+  private readonly blockAccountBreaker: CircuitBreaker<[string, string], void>;
   private readonly blockRequestTimeoutMs: number;
 
   constructor(
@@ -68,7 +71,7 @@ export class AntiFraudService {
       3000;
 
     this.blockAccountBreaker = new CircuitBreaker(
-      (iban: string) => this.performBlockRequest(iban),
+      (iban: string, token: string) => this.performBlockRequest(iban, token),
       {
         timeout: this.blockRequestTimeoutMs, // corta la llamada lenta
         errorThresholdPercentage: 50, // abre si el 50% fallan
@@ -96,11 +99,37 @@ export class AntiFraudService {
 
   // POST: Check transaction
 
-  async checkTransactionRisk(data: CheckTransactionDto): Promise<boolean> {
+  async checkTransactionRisk(
+    data: CheckTransactionDto,
+    token: string,
+  ): Promise<boolean> {
+    try {
+      const cleanToken = token.replace('Bearer ', '').trim();
+      const decoded: any = jwtDecode(cleanToken);
+
+      // IMPORTANTE: Verifica con tu compañero cómo se llama el campo del IBAN en el token.
+      // Puede ser 'iban', 'sub', 'account', 'userId'... Aquí asumo 'iban'.
+      const tokenIban = decoded.iban || decoded.userId || decoded.sub;
+
+      if (!tokenIban) {
+        this.logger.log('Token without IBAN/ID used.');
+      }
+      // Opcional: Si quieres ser estricto y asegurar que el dueño del token es el origen:
+      else if (tokenIban !== data.origin) {
+        throw new ForbiddenException(
+          `You are not authorized to inspect account ${data.origin}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error('Error decoding token:', error);
+      // Decidimos si bloqueamos o seguimos. Por seguridad, mejor fallar si el token es basura.
+      throw new UnauthorizedException('Invalid token format');
+    }
+
     this.logger.log(
       `Analyzing Transaction: ${data.amount}€ | Origin: ${data.origin}`,
     );
-    const accountExists = await this.validateAccountExists(data.origin);
+    const accountExists = await this.validateAccountExists(data.origin, token);
     if (!accountExists) {
       this.logger.log(
         `Transaction analisys aborted: Origin account ${data.origin} does not exist in the system.`,
@@ -122,7 +151,7 @@ export class AntiFraudService {
       );
       try {
         const MONTHS_LOOKBACK = 2;
-        const history = await this.fetchUserHistory(data.origin);
+        const history = await this.fetchUserHistory(data.origin, token);
         const limitDate = new Date(data.transactionDate);
         limitDate.setMonth(limitDate.getMonth() - MONTHS_LOOKBACK);
 
@@ -150,7 +179,7 @@ export class AntiFraudService {
               reason: `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
             });
           }
-          await this.blockUserAccount(data.origin);
+          await this.blockUserAccount(data.origin, token);
           await this.notificateUser(
             data.origin,
             ` Account blocked: several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
@@ -177,7 +206,10 @@ export class AntiFraudService {
     return false;
   }
 
-  private async validateAccountExists(iban: string): Promise<boolean> {
+  private async validateAccountExists(
+    iban: string,
+    token: string,
+  ): Promise<boolean> {
     // 1. We try to retrieve the data from the materialized view
     const localAccount = await this.accountViewModel.findOne({ iban }).exec();
     if (localAccount) return true;
@@ -187,7 +219,7 @@ export class AntiFraudService {
       `Account ${iban} not found in materialized view. Retrieving accounts from accounts microservice.`,
     );
     try {
-      await this.syncMaterializedView();
+      await this.syncMaterializedView(token);
 
       // Once the MV is updated, we try to look up for the account in the view again.
       const recheck = await this.accountViewModel.findOne({ iban }).exec();
@@ -202,13 +234,14 @@ export class AntiFraudService {
     }
   }
 
-  private async syncMaterializedView(): Promise<void> {
+  private async syncMaterializedView(token: string): Promise<void> {
     const accountsServiceUrl =
       this.configService.get<string>('ACCOUNTS_MS_URL') ||
       'http://microservice-accounts:8000';
     const response = await lastValueFrom(
       this.httpService.get<AccountsResponse>(
         `${accountsServiceUrl}/v1/accounts`,
+        { headers: { Authorization: token } },
       ),
     );
     const accounts = response.data.items;
@@ -228,7 +261,10 @@ export class AntiFraudService {
     this.logger.log(`${ops.length} accounts syncronized .`);
   }
 
-  private async fetchUserHistory(iban: string): Promise<TransactionItem[]> {
+  private async fetchUserHistory(
+    iban: string,
+    token: string,
+  ): Promise<TransactionItem[]> {
     const cacheKey = `history:${iban}`;
 
     // First we try to retrieve the history from cache.
@@ -249,6 +285,9 @@ export class AntiFraudService {
       const response = await lastValueFrom(
         this.httpService.get<TransactionItem[]>(
           `${transactionsServiceUrl}/v1/transactions/user/${iban}`,
+          {
+            headers: { Authorization: token },
+          },
         ),
       );
       const transactions = response.data;
@@ -268,8 +307,8 @@ export class AntiFraudService {
     }
   }
 
-  private async blockUserAccount(iban: string): Promise<void> {
-    await this.blockAccountBreaker.fire(iban);
+  private async blockUserAccount(iban: string, token: string): Promise<void> {
+    await this.blockAccountBreaker.fire(iban, token);
   }
 
   private async notificateUser(iban: string, reason: string): Promise<void> {
@@ -301,7 +340,10 @@ export class AntiFraudService {
     }
   }
 
-  private async performBlockRequest(iban: string): Promise<void> {
+  private async performBlockRequest(
+    iban: string,
+    token: string,
+  ): Promise<void> {
     const accountsServiceUrl =
       this.configService.get<string>('ACCOUNTS_MS_URL') ||
       'http://microservice-accounts:8000';
@@ -309,7 +351,10 @@ export class AntiFraudService {
       this.httpService.patch(
         `${accountsServiceUrl}/v1/accounts/${iban}/block`,
         {},
-        { timeout: this.blockRequestTimeoutMs },
+        {
+          headers: { Authorization: token },
+          timeout: this.blockRequestTimeoutMs,
+        },
       ),
     );
   }

@@ -10,6 +10,9 @@ import { Model } from 'mongoose';
 import { AccountView } from '../src/anti-fraud/schemas/account.view.schema';
 import { FraudAlert } from '../src/anti-fraud/schemas/fraud-alert.schema';
 
+const mockToken =
+  'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYmFuIjoiRVMwMDEyMzQ1Njc4OTAxMjM0NTY3ODkwIn0.firma_falsa';
+
 interface TransactionResponse {
   message: string;
 }
@@ -27,7 +30,7 @@ describe('AntiFraudController (e2e)', () => {
   let alertModel: Model<FraudAlert>;
 
   // Valid IBANs for testing
-  const VALID_IBAN_ORIGIN = 'ES7621000418450200051332';
+  const VALID_IBAN_ORIGIN = 'ES0012345678901234567890';
   const VALID_IBAN_DEST = 'ES2400491845342106661369';
 
   const httpServiceMock = {
@@ -80,6 +83,7 @@ describe('AntiFraudController (e2e)', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .post('/v1/antifraud/transaction-check')
+      .set('Authorization', mockToken)
       .send({
         origin: VALID_IBAN_ORIGIN,
         destination: VALID_IBAN_DEST,
@@ -89,7 +93,7 @@ describe('AntiFraudController (e2e)', () => {
       .expect(200)
       .expect((res) => {
         const body = res.body as TransactionResponse;
-        expect(body.message).toBe('Transaction approved');
+        expect(body.message).toBe('No risk detected');
       });
   });
 
@@ -128,6 +132,7 @@ describe('AntiFraudController (e2e)', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .post('/v1/antifraud/transaction-check')
+      .set('Authorization', mockToken)
       .send({
         origin: VALID_IBAN_ORIGIN,
         destination: VALID_IBAN_DEST,
@@ -146,9 +151,10 @@ describe('AntiFraudController (e2e)', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .post('/v1/antifraud/transaction-check')
+      .set('Authorization', mockToken)
       .send({
-        origin: 'INVALID-IBAN', // This must fail due to DTO
-        amount: -500,
+        origin: VALID_IBAN_ORIGIN, // This must fail due to DTO
+        amount: 500,
       })
       .expect(400);
   });

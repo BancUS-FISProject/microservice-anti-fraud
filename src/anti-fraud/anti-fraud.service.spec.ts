@@ -11,6 +11,8 @@ import { AccountView } from './schemas/account.view.schema';
 import { AlertStatus } from './dto/update-fraud-alert.dto';
 
 describe('AntiFraudService', () => {
+  const mockToken =
+    'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYmFuIjoiRVMwMDEyMzQ1Njc4OTAxMjM0NTY3ODkwIn0.firma_falsa';
   let service: AntiFraudService;
 
   // Mocks
@@ -85,8 +87,8 @@ describe('AntiFraudService', () => {
   describe('checkTransactionRisk', () => {
     const validDto = {
       amount: 500,
-      origin: 'ES123',
-      destination: 'ES456',
+      origin: 'ES0012345678901234567890',
+      destination: 'ES4567890123456789012345',
       transactionDate: new Date(),
     };
 
@@ -98,9 +100,9 @@ describe('AntiFraudService', () => {
       // Mock: No en remoto (lista vacía)
       httpServiceMock.get.mockReturnValue(of({ data: [] }));
 
-      await expect(service.checkTransactionRisk(validDto)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.checkTransactionRisk(validDto, mockToken),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('should approve transaction if amount <= 2000 (Safe)', async () => {
@@ -109,7 +111,7 @@ describe('AntiFraudService', () => {
         exec: jest.fn().mockResolvedValue({ iban: 'ES123' }),
       });
 
-      const result = await service.checkTransactionRisk(validDto);
+      const result = await service.checkTransactionRisk(validDto, mockToken);
 
       expect(result).toBe(false); // False = No risk
       expect(httpServiceMock.get).not.toHaveBeenCalledWith(
@@ -140,7 +142,7 @@ describe('AntiFraudService', () => {
         exec: jest.fn().mockResolvedValue({}),
       });
 
-      const result = await service.checkTransactionRisk(riskyDto);
+      const result = await service.checkTransactionRisk(riskyDto, mockToken);
 
       expect(result).toBe(true); // Fraud detected
       expect(httpServiceMock.patch).toHaveBeenCalled(); // Block account
