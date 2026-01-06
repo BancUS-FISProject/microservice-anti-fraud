@@ -71,7 +71,7 @@ export class AntiFraudController {
   @ApiOperation({
     summary:
       'Retrieves transaction history alerts for a specific account using the IBAN.',
-    description: 'Returns all alerts where this IBAN/Card was the origin.',
+    description: 'Returns all alerts where this IBAN was the origin.',
   })
   @ApiParam({
     name: 'iban',
@@ -82,6 +82,10 @@ export class AntiFraudController {
   @ApiResponse({
     status: 200,
     description: 'List of alerts retrieved successfully.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid IBAN format.',
   })
   @ApiBadRequestResponse({ description: 'Invalid request format.' })
   @ApiNotFoundResponse({

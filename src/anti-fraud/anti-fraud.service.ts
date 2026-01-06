@@ -341,6 +341,10 @@ export class AntiFraudService {
   // GET - Retrieve fraud alerts registered by the system.
 
   async getAlertsForAccount(iban: string) {
+    const isIban = /^[A-Z]{2}\d{2}[A-Z0-9]{1,30}$/;
+    if (!isIban.test(iban)) {
+      throw new BadRequestException(`Invalid IBAN format: ${iban}`);
+    }
     this.logger.log(`Searching alerts for IBAN: ${iban}`);
     const alerts = await this.alertModel.find({ origin: iban }).exec();
     if (!alerts || alerts.length === 0) {
