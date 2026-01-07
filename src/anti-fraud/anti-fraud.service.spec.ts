@@ -11,6 +11,7 @@ import { AccountView } from './schemas/account.view.schema';
 import { AlertStatus } from './dto/update-fraud-alert.dto';
 
 describe('AntiFraudService', () => {
+  const validIban = 'ES0012345678901234567890';
   const mockToken =
     'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYmFuIjoiRVMwMDEyMzQ1Njc4OTAxMjM0NTY3ODkwIn0.firma_falsa';
   let service: AntiFraudService;
@@ -94,66 +95,112 @@ describe('AntiFraudService', () => {
       transactionDate: new Date(),
     };
 
-    it('should throw BadRequestException if account does not exist locally or remotely', async () => {
-      // Mock: No en local
+    it('should throw BadRequestException if account does not exist', async () => {
       accountViewModelMock.findOne.mockReturnValue({
         exec: jest.fn().mockResolvedValue(null),
       });
-      // Mock: No en remoto (lista vacía)
-      httpServiceMock.get.mockReturnValue(of({ data: [] }));
+      httpServiceMock.get.mockReturnValue(of({ data: { items: [] } }));
 
       await expect(
         service.checkTransactionRisk(validDto, mockToken),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should approve transaction if amount <= 2000 (Safe)', async () => {
-      // Mock: Account exists.
+    // TEST 1: REGLA INMEDIATA (> 2000)
+    it('should BLOCK immediately if amount > 2000 (Rule 1)', async () => {
+      const riskyDto = { ...validDto, amount: 2500 }; // 2500 > 2000
+
       accountViewModelMock.findOne.mockReturnValue({
-        exec: jest.fn().mockResolvedValue({ iban: 'ES123' }),
+        exec: jest.fn().mockResolvedValue({ iban: validIban }),
       });
 
-      const result = await service.checkTransactionRisk(validDto, mockToken);
+      // Mock creación alerta inicial
+      fraudAlertModelMock.create.mockResolvedValue({ _id: '1', ...riskyDto });
 
-      expect(result).toBe(false); // False = No risk
-      expect(httpServiceMock.get).not.toHaveBeenCalledWith(
-        expect.stringContaining('/transactions/'),
-      );
-    });
-
-    it('should block account if amount > 2000 AND pattern found', async () => {
-      const riskyDto = { ...validDto, amount: 5000 };
-
-      // Account exists
-      accountViewModelMock.findOne.mockReturnValue({
-        exec: jest.fn().mockResolvedValue({ iban: 'ES0012345678901234567890' }),
-      });
-
-      // Fraudulent history.
-      const pastTransactions = [
-        { date: new Date().toISOString(), quantity: 5000 },
-        { date: new Date().toISOString(), quantity: 3000 },
-      ];
-
-      // Cache miss -> API call
-      cacheManagerMock.get.mockResolvedValue(null);
-      httpServiceMock.get.mockReturnValueOnce(of({ data: pastTransactions }));
-
+      // Mock updateAlert (findById + findByIdAndUpdate)
       fraudAlertModelMock.findById.mockReturnValue({
-        exec: jest
-          .fn()
-          .mockResolvedValue({ _id: '1', origin: 'ES0012345678901234567890' }),
+        exec: jest.fn().mockResolvedValue({ _id: '1', origin: validIban }),
       });
-
-      // Mock update alert
       fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({
         exec: jest.fn().mockResolvedValue({}),
       });
 
       const result = await service.checkTransactionRisk(riskyDto, mockToken);
 
-      expect(result).toBe(true); // Fraud detected
-      expect(httpServiceMock.patch).toHaveBeenCalled(); // Block account
+      expect(result).toBe(true); // Debe devolver true (Fraude)
+      // Debe haber llamado a blockUserAccount (http patch)
+      expect(httpServiceMock.patch).toHaveBeenCalled();
+      // Debe haber actualizado la alerta a CONFIRMED
+      expect(fraudAlertModelMock.findByIdAndUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ status: 'CONFIRMED' }),
+        expect.anything(),
+      );
+    });
+
+    // TEST 2: REGLA PATRÓN (> 1000 REPETIDO)
+    it('should BLOCK if pattern detected (amount > 1000 repeated >= 2 times)', async () => {
+      const normalDto = { ...validDto, amount: 1200 }; // 1200 < 2000 (Pasa regla 1)
+
+      accountViewModelMock.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ iban: validIban }),
+      });
+
+      // Historial peligroso: 2 transacciones previas de 1500 (> 1000)
+      const pastTransactions = [
+        { date: new Date().toISOString(), quantity: 1500 },
+        { date: new Date().toISOString(), quantity: 1500 },
+      ];
+
+      cacheManagerMock.get.mockResolvedValue(null);
+      httpServiceMock.get.mockReturnValue(of({ data: pastTransactions }));
+
+      fraudAlertModelMock.create.mockResolvedValue({ _id: '1', ...normalDto });
+
+      fraudAlertModelMock.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ _id: '1', origin: validIban }),
+      });
+      fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({}),
+      });
+
+      const result = await service.checkTransactionRisk(normalDto, mockToken);
+
+      expect(result).toBe(true); // True porque count (2) >= 2
+      expect(httpServiceMock.patch).toHaveBeenCalled();
+    });
+
+    // TEST 3: TRANSACCIÓN SEGURA
+    it('should APPROVE if amount <= 2000 and no risky history', async () => {
+      const safeDto = { ...validDto, amount: 500 };
+
+      accountViewModelMock.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ iban: validIban }),
+      });
+
+      // Historial limpio
+      cacheManagerMock.get.mockResolvedValue([]);
+      httpServiceMock.get.mockReturnValue(of({ data: [] }));
+
+      fraudAlertModelMock.create.mockResolvedValue({ _id: '1', ...safeDto });
+
+      // Mock updateAlert (para ponerlo en REVIEWED)
+      fraudAlertModelMock.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ _id: '1', origin: validIban }),
+      });
+      fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({}),
+      });
+
+      const result = await service.checkTransactionRisk(safeDto, mockToken);
+
+      expect(result).toBe(false); // False (Seguro)
+      // Debe actualizar a REVIEWED
+      expect(fraudAlertModelMock.findByIdAndUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ status: 'REVIEWED' }),
+        expect.anything(),
+      );
     });
   });
 

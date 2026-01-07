@@ -116,80 +116,75 @@ export class AntiFraudService {
         `Origin account ${data.origin} is not a valid account in our system.`,
       );
     }
+    // 2. Initial alert created.
+    const initialAlert = await this.createAlert(
+      data,
+      `Suspicious transaction detected: high money amount transferred.`,
+    );
+    const alertId = initialAlert ? initialAlert._id.toString() : null;
 
-    const isSuspicious = data.amount > 2000;
-    if (isSuspicious) {
-      this.logger.log(
-        `High amount detected (>2000€). Investigating history for account ${data.origin}`,
-      );
-
-      const initialAlert = await this.createAlert(
-        data,
-        `Suspicious transaction detected: high money amount transferred.`,
-      );
-      try {
-        const MONTHS_LOOKBACK = 2;
-        const history = await this.fetchUserHistory(data.origin, token);
-        const limitDate = new Date(data.transactionDate);
-        limitDate.setMonth(limitDate.getMonth() - MONTHS_LOOKBACK);
-
-        // 2. Count how many times this account moved > 2000€
-        const recentHighValueCount = history.filter((tx: TransactionItem) => {
-          const txDate = new Date(tx.date);
-          const txAmount = tx.quantity;
-          const isRecent = txDate >= limitDate;
-          const isHighAmount = txAmount > 2000;
-
-          return isRecent && isHighAmount;
-        }).length;
-
+    try {
+      // RULE 1: Inmediate detection (> 2000 transaction will automatically block the account)
+      if (data.amount > 2000) {
         this.logger.log(
-          `Found ${recentHighValueCount} previous high-value transactions.`,
+          `High amount detected (>2000€). Investigating history for account ${data.origin}`,
         );
+        await this.performFraudBlock(
+          alertId,
+          data.origin,
+          `Suspicious transaction detected: high money amount transferred.`,
+          ` Account blocked: Suspicious transaction detected: high money amount transferred.`,
+          token,
+        );
+        return true;
+      }
 
-        if (recentHighValueCount >= 2) {
-          this.logger.log(
-            `REPEATED TRANSFERS WITH HIGH VALUE DETECTED (${recentHighValueCount} times). Blocking account.`,
-          );
-          if (initialAlert) {
-            await this.updateAlert(
-              initialAlert._id.toString(),
-              {
-                status: AlertStatus.CONFIRMED,
-                reason: `Several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
-              },
-              token,
-            );
-          }
-          await this.blockUserAccount(data.origin, token);
-          await this.notificateUser(
-            data.origin,
-            ` Account blocked: several recent high amount transactions detected: ${recentHighValueCount + 1} times in last ${MONTHS_LOOKBACK} months.`,
-          );
-          return true;
-        }
-      } catch (error) {
-        const errMessage =
-          error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(
-          `Failed to fetch history during check. Error: ${errMessage}`,
+      // RULE 2: Pattern detection (> 1000€ transaction in less than 2 months)
+      const history = await this.fetchUserHistory(data.origin, token);
+      const { count, monthsLookback } = this.calculateHighValueCount(
+        history,
+        data.transactionDate,
+      );
+      this.logger.log(`Found ${count} previous high-value transactions.`);
+      if (count >= 2) {
+        this.logger.log(
+          `REPEATED TRANSFERS WITH HIGH VALUE DETECTED (${count} times). Blocking account.`,
         );
-        if (initialAlert) {
-          await this.updateAlert(
-            initialAlert._id.toString(),
-            {
-              reason: `High transaction amount detected and unable to retrieve previous records. Error: ${errMessage}`,
-              status: AlertStatus.REVIEWED,
-            },
-            token,
-          );
-        }
-        throw new InternalServerErrorException(
-          'Could not verify transaction history',
+        const reasonString = `Several recent high amount transactions detected: ${count + 1} times in last ${monthsLookback} months.`;
+        const notificationString = ` Account blocked: several recent high amount transactions detected: ${count + 1} times in last ${monthsLookback} months.`;
+        await this.performFraudBlock(
+          alertId,
+          data.origin,
+          reasonString,
+          notificationString,
+          token,
+        );
+        return true;
+      }
+      // RESULT: Safe transaction
+      await this.finalizeSafeAnalysis(alertId, token);
+      return false;
+    } catch (error) {
+      const errMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to fetch history during check. Error: ${errMessage}`,
+      );
+      if (alertId) {
+        // Tu texto de error original
+        await this.updateAlert(
+          alertId,
+          {
+            reason: `High transaction amount detected and unable to retrieve previous records. Error: ${errMessage}`,
+            status: AlertStatus.REVIEWED,
+          },
+          token,
         );
       }
+      throw new InternalServerErrorException(
+        'Could not verify transaction history',
+      );
     }
-    return false;
   }
 
   private async validateAccountExists(
@@ -217,6 +212,60 @@ export class AntiFraudService {
         error,
       );
       return true;
+    }
+  }
+
+  private async performFraudBlock(
+    alertId: string | null,
+    origin: string,
+    alertReason: string,
+    notificationReason: string,
+    token: string,
+  ): Promise<void> {
+    if (alertId) {
+      await this.updateAlert(
+        alertId,
+        {
+          status: AlertStatus.CONFIRMED,
+          reason: alertReason,
+        },
+        token,
+      );
+    }
+    await this.blockUserAccount(origin, token);
+    await this.notificateUser(origin, notificationReason);
+  }
+
+  private calculateHighValueCount(
+    history: TransactionItem[],
+    transactionDateDto: string | number | Date,
+  ): { count: number; monthsLookback: number } {
+    const MONTHS_LOOKBACK = 2;
+    const limitDate = new Date(transactionDateDto);
+    limitDate.setMonth(limitDate.getMonth() - MONTHS_LOOKBACK);
+    const count = history.filter((tx: TransactionItem) => {
+      const txDate = new Date(tx.date);
+      const txAmount = tx.quantity;
+      const isRecent = txDate >= limitDate;
+      const isHighAmount = txAmount > 1000;
+      return isRecent && isHighAmount;
+    }).length;
+    return { count, monthsLookback: MONTHS_LOOKBACK };
+  }
+
+  private async finalizeSafeAnalysis(
+    alertId: string | null,
+    token: string,
+  ): Promise<void> {
+    if (alertId) {
+      await this.updateAlert(
+        alertId,
+        {
+          status: AlertStatus.REVIEWED,
+          reason: 'Risk analysis passed.',
+        },
+        token,
+      );
     }
   }
 

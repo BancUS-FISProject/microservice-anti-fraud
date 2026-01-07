@@ -36,6 +36,7 @@ describe('AntiFraudController (e2e)', () => {
   const httpServiceMock = {
     get: jest.fn(),
     patch: jest.fn(),
+    post: jest.fn(),
   };
 
   beforeAll(async () => {
@@ -48,6 +49,7 @@ describe('AntiFraudController (e2e)', () => {
   });
 
   beforeEach(async () => {
+    jest.clearAllMocks();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [MongooseModule.forRoot(process.env.MONGO_URI!), AppModule],
     })
@@ -75,7 +77,13 @@ describe('AntiFraudController (e2e)', () => {
 
   // --- TEST 1: Safe Transaction ---
   it('/v1/antifraud/transaction-check (POST) - Safe Transaction', async () => {
-    // 1. Create the account in the DB
+    // Mock: Historial vacío y cuenta ok
+    httpServiceMock.get.mockImplementation((url: string) => {
+      if (url.includes('/transactions')) return of({ data: [] });
+      if (url.includes('/accounts')) return of({ data: { items: [] } });
+      return of({ data: [] });
+    });
+
     await accountModel.create({
       iban: VALID_IBAN_ORIGIN,
       status: 'active',
@@ -87,7 +95,7 @@ describe('AntiFraudController (e2e)', () => {
       .send({
         origin: VALID_IBAN_ORIGIN,
         destination: VALID_IBAN_DEST,
-        amount: 500, // Low amount
+        amount: 500, // 500 < 2000 (Safe)
         transactionDate: new Date().toISOString(),
       })
       .expect(200)
@@ -97,38 +105,18 @@ describe('AntiFraudController (e2e)', () => {
       });
   });
 
-  // --- TEST 2: Fraud Detected ---
-  it('/v1/antifraud/transaction-check (POST) - Fraud Detected', async () => {
-    // 1. Create the account in the DB
+  // --- TEST 2: REGLA 1 - Immediate Block (> 2000) ---
+  it('/v1/antifraud/transaction-check (POST) - Fraud Detected (Immediate > 2000)', async () => {
     await accountModel.create({
       iban: VALID_IBAN_ORIGIN,
       status: 'active',
     });
 
-    // 2. MOCK HTTP
-    httpServiceMock.get.mockImplementation((url: string) => {
-      if (url.includes('/transactions')) {
-        return of({
-          data: [
-            {
-              // Old transaction 1 (high amount)
-              date: new Date(Date.now() - 100000).toISOString(),
-              quantity: 3000,
-              sender: VALID_IBAN_ORIGIN,
-            },
-            {
-              // Old transaction 2 (high amount)
-              date: new Date(Date.now() - 200000).toISOString(),
-              quantity: 4500,
-              sender: VALID_IBAN_ORIGIN,
-            },
-          ],
-        });
-      }
-      return of({ data: [] });
-    });
-
+    // Mock: Historial vacío (Para demostrar que bloquea sin mirar historial)
+    // Mock: Patch (bloqueo) devuelve OK
+    httpServiceMock.get.mockReturnValue(of({ data: [] }));
     httpServiceMock.patch.mockReturnValue(of({ status: 200 }));
+    httpServiceMock.post.mockReturnValue(of({ status: 200 })); // Notification
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .post('/v1/antifraud/transaction-check')
@@ -136,7 +124,7 @@ describe('AntiFraudController (e2e)', () => {
       .send({
         origin: VALID_IBAN_ORIGIN,
         destination: VALID_IBAN_DEST,
-        amount: 5000,
+        amount: 2500,
         transactionDate: new Date().toISOString(),
       })
       .expect(200)
@@ -146,14 +134,60 @@ describe('AntiFraudController (e2e)', () => {
       });
   });
 
-  // --- TEST 3: Validation (Bad Request) ---
+  // --- TEST 3: REGLA 2 - Pattern Block (Amount < 2000 but History Dirty) ---
+  it('/v1/antifraud/transaction-check (POST) - Fraud Detected (Pattern Analysis)', async () => {
+    await accountModel.create({
+      iban: VALID_IBAN_ORIGIN,
+      status: 'active',
+    });
+
+    // Devolvemos historial con 2 transacciones de 1500 (> 1000) recientes
+    httpServiceMock.get.mockImplementation((url: string) => {
+      if (url.includes('/transactions')) {
+        return of({
+          data: [
+            {
+              date: new Date().toISOString(),
+              quantity: 1500,
+              sender: VALID_IBAN_ORIGIN,
+            },
+            {
+              date: new Date().toISOString(),
+              quantity: 1500,
+              sender: VALID_IBAN_ORIGIN,
+            },
+          ],
+        });
+      }
+      return of({ data: [] });
+    });
+    httpServiceMock.patch.mockReturnValue(of({ status: 200 }));
+    httpServiceMock.post.mockReturnValue(of({ status: 200 }));
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    return request(app.getHttpServer())
+      .post('/v1/antifraud/transaction-check')
+      .set('Authorization', mockToken)
+      .send({
+        origin: VALID_IBAN_ORIGIN,
+        destination: VALID_IBAN_DEST,
+        amount: 1200, // < 2000 (Pasa el primer filtro)
+        transactionDate: new Date().toISOString(),
+      })
+      .expect(200)
+      .expect((res) => {
+        const body = res.body as TransactionResponse;
+        expect(body.message).toContain('Fraudulent behaviour detected');
+      });
+  });
+
+  // --- TEST 4: Validation (Bad Request) ---
   it('/v1/antifraud/transaction-check (POST) - Bad Request', async () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .post('/v1/antifraud/transaction-check')
       .set('Authorization', mockToken)
       .send({
-        origin: VALID_IBAN_ORIGIN, // This must fail due to DTO
+        origin: VALID_IBAN_ORIGIN,
         amount: 500,
       })
       .expect(400);
