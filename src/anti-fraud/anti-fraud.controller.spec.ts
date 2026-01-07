@@ -100,10 +100,16 @@ describe('AntiFraudController', () => {
       const mockAlerts = [{ id: '1', status: 'PENDING' }];
       mockAntiFraudService.getAlertsForAccount.mockResolvedValue(mockAlerts);
 
-      const result = await controller.getAccountAlerts('ES123');
+      const result = await controller.getAccountAlerts(
+        'ES0012345678901234567890',
+        mockToken,
+      );
 
       expect(result).toEqual(mockAlerts);
-      expect(service.getAlertsForAccount).toHaveBeenCalledWith('ES123');
+      expect(service.getAlertsForAccount).toHaveBeenCalledWith(
+        'ES0012345678901234567890',
+        mockToken,
+      );
     });
   });
 
@@ -115,10 +121,10 @@ describe('AntiFraudController', () => {
 
       mockAntiFraudService.updateAlert.mockResolvedValue(updated);
 
-      const result = await controller.updateAlert('1', dto);
+      const result = await controller.updateAlert('1', dto, mockToken);
 
       expect(result).toEqual(updated);
-      expect(service.updateAlert).toHaveBeenCalledWith('1', dto);
+      expect(service.updateAlert).toHaveBeenCalledWith('1', dto, mockToken);
     });
   });
 
@@ -128,10 +134,10 @@ describe('AntiFraudController', () => {
       const response = { message: 'Deleted', id: '1' };
       mockAntiFraudService.deleteAlert.mockResolvedValue(response);
 
-      const result = await controller.deleteAlert('1');
+      const result = await controller.deleteAlert('1', mockToken);
 
       expect(result).toEqual(response);
-      expect(service.deleteAlert).toHaveBeenCalledWith('1');
+      expect(service.deleteAlert).toHaveBeenCalledWith('1', mockToken);
     });
   });
 });

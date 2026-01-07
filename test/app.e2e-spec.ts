@@ -173,6 +173,7 @@ describe('AntiFraudController (e2e)', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .get(`/v1/antifraud/accounts/${VALID_IBAN_ORIGIN}/fraud-alerts`)
+      .set('Authorization', mockToken)
       .expect(200)
       .expect((res) => {
         const body = res.body as AlertResponse[];
@@ -198,6 +199,7 @@ describe('AntiFraudController (e2e)', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .put(`/v1/antifraud/fraud-alerts/${alertId}`)
+      .set('Authorization', mockToken)
       .send({ status: 'CONFIRMED' }) // Ensure this matches your UpdateFraudAlertDto
       .expect(200)
       .expect((res) => {
@@ -222,6 +224,7 @@ describe('AntiFraudController (e2e)', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     await request(app.getHttpServer())
       .delete(`/v1/antifraud/fraud-alerts/${alertId}`)
+      .set('Authorization', mockToken)
       .expect(200);
 
     const found = await alertModel.findById(alertId);
