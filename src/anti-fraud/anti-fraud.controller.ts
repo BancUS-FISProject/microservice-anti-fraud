@@ -8,6 +8,8 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  Headers,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AntiFraudService } from './anti-fraud.service';
 import { CheckTransactionDto } from './dto/check-transaction.dto';
@@ -52,26 +54,41 @@ export class AntiFraudController {
       },
     },
   })
-  @ApiResponse({ status: 200, description: 'Transaction approved.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Risk analysis completed',
+    schema: {
+      example: { message: 'No risk detected' },
+    },
+  })
   @ApiBadRequestResponse({
     description: 'Bad request: Missing fields or invalid types.',
   })
   @HttpCode(HttpStatus.OK)
-  async checkTransaction(@Body() data: CheckTransactionDto) {
-    const isRisky = await this.antiFraudService.checkTransactionRisk(data);
+  async checkTransaction(
+    @Body() data: CheckTransactionDto,
+    @Headers('authorization') authHeader: string,
+  ) {
+    if (!authHeader) {
+      throw new UnauthorizedException('Authorization header is missing');
+    }
+    const isRisky = await this.antiFraudService.checkTransactionRisk(
+      data,
+      authHeader,
+    );
     if (isRisky) {
       return {
         message: 'Fraudulent behaviour detected.',
       };
     }
-    return { message: 'Transaction approved' };
+    return { message: 'No risk detected' };
   }
 
   @Get('accounts/:iban/fraud-alerts')
   @ApiOperation({
     summary:
       'Retrieves transaction history alerts for a specific account using the IBAN.',
-    description: 'Returns all alerts where this IBAN/Card was the origin.',
+    description: 'Returns all alerts where this IBAN was the origin.',
   })
   @ApiParam({
     name: 'iban',
@@ -83,13 +100,23 @@ export class AntiFraudController {
     status: 200,
     description: 'List of alerts retrieved successfully.',
   })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid IBAN format.',
+  })
   @ApiBadRequestResponse({ description: 'Invalid request format.' })
   @ApiNotFoundResponse({
     description: 'No alerts found for the provided IBAN.',
   })
   @ApiResponse({ status: 200, description: 'List of alerts retrieved.' })
-  async getAccountAlerts(@Param('iban') iban: string) {
-    return this.antiFraudService.getAlertsForAccount(iban);
+  async getAccountAlerts(
+    @Param('iban') iban: string,
+    @Headers('authorization') authHeader: string,
+  ) {
+    if (!authHeader) {
+      throw new UnauthorizedException('Authorization header is missing');
+    }
+    return this.antiFraudService.getAlertsForAccount(iban, authHeader);
   }
 
   // PUT /v1/fraud-alerts/:id
@@ -107,8 +134,11 @@ export class AntiFraudController {
   async updateAlert(
     @Param('id') id: string,
     @Body() updateData: UpdateFraudAlertDto,
+    @Headers('authorization') authHeader: string,
   ) {
-    return this.antiFraudService.updateAlert(id, updateData);
+    if (!authHeader)
+      throw new UnauthorizedException('Authorization header missing');
+    return this.antiFraudService.updateAlert(id, updateData, authHeader);
   }
 
   // DELETE /v1/fraud-alerts/:id
@@ -120,7 +150,12 @@ export class AntiFraudController {
     description: 'Alert not found',
   })
   @ApiBadRequestResponse({ description: 'Invalid ID format.' })
-  async deleteAlert(@Param('id') id: string) {
-    return this.antiFraudService.deleteAlert(id);
+  async deleteAlert(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader: string,
+  ) {
+    if (!authHeader)
+      throw new UnauthorizedException('Authorization header missing');
+    return this.antiFraudService.deleteAlert(id, authHeader);
   }
 }
