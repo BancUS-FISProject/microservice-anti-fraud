@@ -109,8 +109,14 @@ export class AntiFraudController {
     description: 'No alerts found for the provided IBAN.',
   })
   @ApiResponse({ status: 200, description: 'List of alerts retrieved.' })
-  async getAccountAlerts(@Param('iban') iban: string) {
-    return this.antiFraudService.getAlertsForAccount(iban);
+  async getAccountAlerts(
+    @Param('iban') iban: string,
+    @Headers('authorization') authHeader: string,
+  ) {
+    if (!authHeader) {
+      throw new UnauthorizedException('Authorization header is missing');
+    }
+    return this.antiFraudService.getAlertsForAccount(iban, authHeader);
   }
 
   // PUT /v1/fraud-alerts/:id
@@ -128,8 +134,11 @@ export class AntiFraudController {
   async updateAlert(
     @Param('id') id: string,
     @Body() updateData: UpdateFraudAlertDto,
+    @Headers('authorization') authHeader: string,
   ) {
-    return this.antiFraudService.updateAlert(id, updateData);
+    if (!authHeader)
+      throw new UnauthorizedException('Authorization header missing');
+    return this.antiFraudService.updateAlert(id, updateData, authHeader);
   }
 
   // DELETE /v1/fraud-alerts/:id
@@ -141,7 +150,12 @@ export class AntiFraudController {
     description: 'Alert not found',
   })
   @ApiBadRequestResponse({ description: 'Invalid ID format.' })
-  async deleteAlert(@Param('id') id: string) {
-    return this.antiFraudService.deleteAlert(id);
+  async deleteAlert(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader: string,
+  ) {
+    if (!authHeader)
+      throw new UnauthorizedException('Authorization header missing');
+    return this.antiFraudService.deleteAlert(id, authHeader);
   }
 }
