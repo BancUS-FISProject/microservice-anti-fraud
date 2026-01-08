@@ -77,10 +77,12 @@ describe('AntiFraudController (e2e)', () => {
 
   // --- TEST 1: Safe Transaction ---
   it('/v1/antifraud/transaction-check (POST) - Safe Transaction', async () => {
-    // Mock: Historial vacío y cuenta ok
     httpServiceMock.get.mockImplementation((url: string) => {
       if (url.includes('/transactions')) return of({ data: [] });
-      if (url.includes('/accounts')) return of({ data: { items: [] } });
+      if (url.includes('/accounts/'))
+        return of({
+          data: { iban: VALID_IBAN_ORIGIN, isBlocked: 'active' },
+        });
       return of({ data: [] });
     });
 
@@ -107,16 +109,19 @@ describe('AntiFraudController (e2e)', () => {
     expect(alertsCount).toBe(0);
   });
 
-  // --- TEST 2: REGLA 1 - Immediate Block (> 2000) ---
+  // --- TEST 2: Immediate Block (> 2000) ---
   it('/v1/antifraud/transaction-check (POST) - Fraud Detected (Immediate > 2000)', async () => {
     await accountModel.create({
       iban: VALID_IBAN_ORIGIN,
       status: 'active',
     });
-
-    // Mock: Historial vacío (Para demostrar que bloquea sin mirar historial)
-    // Mock: Patch (bloqueo) devuelve OK
-    httpServiceMock.get.mockReturnValue(of({ data: [] }));
+    httpServiceMock.get.mockImplementation((url: string) => {
+      if (url.includes('/accounts/'))
+        return of({
+          data: { iban: VALID_IBAN_ORIGIN, isBlocked: 'active' },
+        });
+      return of({ data: [] });
+    });
     httpServiceMock.patch.mockReturnValue(of({ status: 200 }));
     httpServiceMock.post.mockReturnValue(of({ status: 200 })); // Notification
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
@@ -136,14 +141,12 @@ describe('AntiFraudController (e2e)', () => {
       });
   });
 
-  // --- TEST 3: REGLA 2 - Pattern Block (Amount < 2000 but History Dirty) ---
+  // --- TEST 3: Pattern Block (Amount < 2000 but fraudulent behaviour on history) ---
   it('/v1/antifraud/transaction-check (POST) - Fraud Detected (Pattern Analysis)', async () => {
     await accountModel.create({
       iban: VALID_IBAN_ORIGIN,
       status: 'active',
     });
-
-    // Devolvemos historial con 2 transacciones de 1500 (> 1000) recientes
     httpServiceMock.get.mockImplementation((url: string) => {
       if (url.includes('/transactions')) {
         return of({
@@ -161,10 +164,16 @@ describe('AntiFraudController (e2e)', () => {
           ],
         });
       }
+      if (url.includes('/accounts/')) {
+        return of({
+          data: { iban: VALID_IBAN_ORIGIN, isBlocked: 'active' },
+        });
+      }
       return of({ data: [] });
     });
     httpServiceMock.patch.mockReturnValue(of({ status: 200 }));
     httpServiceMock.post.mockReturnValue(of({ status: 200 }));
+
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return request(app.getHttpServer())
       .post('/v1/antifraud/transaction-check')
@@ -172,7 +181,7 @@ describe('AntiFraudController (e2e)', () => {
       .send({
         origin: VALID_IBAN_ORIGIN,
         destination: VALID_IBAN_DEST,
-        amount: 1200, // < 2000 (Pasa el primer filtro)
+        amount: 1200,
         transactionDate: new Date().toISOString(),
       })
       .expect(200)
