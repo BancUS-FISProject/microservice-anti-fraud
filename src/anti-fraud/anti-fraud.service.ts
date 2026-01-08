@@ -45,13 +45,6 @@ interface AccountItem {
   isBlocked?: string;
 }
 
-interface AccountsResponse {
-  items: AccountItem[];
-  page: number;
-  size: number;
-  total: number;
-}
-
 @Injectable()
 export class AntiFraudService {
   private readonly logger = new Logger(AntiFraudService.name);
@@ -196,11 +189,8 @@ export class AntiFraudService {
       `Account ${iban} not found in materialized view. Retrieving accounts from accounts microservice.`,
     );
     try {
-      await this.syncMaterializedView(token);
-
-      // Once the MV is updated, we try to look up for the account in the view again.
-      const recheck = await this.accountViewModel.findOne({ iban }).exec();
-      return Boolean(recheck);
+      const existsInSource = await this.syncAccount(iban, token);
+      return existsInSource;
     } catch (error) {
       // If the service is not working, we assume the account exists to avoid possible fraud problems.
       this.logger.error(
@@ -249,31 +239,40 @@ export class AntiFraudService {
     return { count, monthsLookback: MONTHS_LOOKBACK };
   }
 
-  private async syncMaterializedView(token: string): Promise<void> {
+  private async syncAccount(iban: string, token: string): Promise<boolean> {
     const accountsServiceUrl =
       this.configService.get<string>('ACCOUNTS_MS_URL') ||
       'http://microservice-accounts:8000';
-    const response = await lastValueFrom(
-      this.httpService.get<AccountsResponse>(
-        `${accountsServiceUrl}/v1/accounts`,
-        { headers: { Authorization: token } },
-      ),
-    );
-    const accounts = response.data.items;
 
-    if (!accounts?.length) return;
+    try {
+      // Request to accounts: GET /v1/accounts/{iban}
+      const response = await lastValueFrom(
+        this.httpService.get<AccountItem>(
+          `${accountsServiceUrl}/v1/accounts/${iban}`,
+          { headers: { Authorization: token } },
+        ),
+      );
+      const account = response.data;
+      if (!account) return false;
 
-    // Update old registers and add new ones to the MV.
-    const ops = accounts.map((acc) => ({
-      updateOne: {
-        filter: { iban: acc.iban },
-        update: { $set: { iban: acc.iban, status: acc.isBlocked } },
-        upsert: true,
-      },
-    }));
-
-    await this.accountViewModel.bulkWrite(ops);
-    this.logger.log(`${ops.length} accounts syncronized .`);
+      // We add this account in the materialized view.
+      await this.accountViewModel.updateOne(
+        { iban: account.iban },
+        { $set: { iban: account.iban, status: account.isBlocked } },
+        { upsert: true },
+      );
+      this.logger.log(
+        `Account ${iban} synchronized successfully in the materialized view.`,
+      );
+      return true;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      if (axiosError.response && axiosError.response.status === 404) {
+        this.logger.warn(`Account ${iban} does not exist in source system.`);
+        return false;
+      }
+      throw error;
+    }
   }
 
   private async fetchUserHistory(

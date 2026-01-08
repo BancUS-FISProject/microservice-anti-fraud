@@ -26,7 +26,11 @@ describe('AntiFraudService', () => {
     findByIdAndUpdate: jest.Mock;
     findByIdAndDelete: jest.Mock;
   };
-  let accountViewModelMock: { findOne: jest.Mock; bulkWrite: jest.Mock };
+  let accountViewModelMock: {
+    findOne: jest.Mock;
+    bulkWrite: jest.Mock;
+    updateOne: jest.Mock;
+  };
 
   beforeEach(async () => {
     httpServiceMock = {
@@ -55,6 +59,7 @@ describe('AntiFraudService', () => {
     accountViewModelMock = {
       findOne: jest.fn(),
       bulkWrite: jest.fn(),
+      updateOne: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -99,14 +104,45 @@ describe('AntiFraudService', () => {
       accountViewModelMock.findOne.mockReturnValue({
         exec: jest.fn().mockResolvedValue(null),
       });
-      httpServiceMock.get.mockReturnValue(of({ data: { items: [] } }));
-
+      const error = new Error('Simulated 404');
+      const axiosError = error as Error & { response: { status: number } };
+      axiosError.response = { status: 404 };
+      httpServiceMock.get.mockImplementation(() => {
+        throw axiosError;
+      });
       await expect(
         service.checkTransactionRisk(validDto, mockToken),
       ).rejects.toThrow(BadRequestException);
     });
 
-    // TEST 1: REGLA INMEDIATA (> 2000)
+    it('should sync account from MS if not found locally (Lazy Loading)', async () => {
+      accountViewModelMock.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+      const remoteAccount = { iban: validIban, isBlocked: 'active' };
+      httpServiceMock.get.mockImplementation((url: string) => {
+        if (url.includes('/accounts/')) {
+          return of({ data: remoteAccount });
+        }
+        if (url.includes('/transactions/')) {
+          return of({ data: [] });
+        }
+        return of({ data: [] });
+      });
+
+      // Simulamos que el cache de historial está vacío para forzar la llamada HTTP
+      cacheManagerMock.get.mockResolvedValue(null);
+      accountViewModelMock.updateOne.mockResolvedValue({});
+      const result = await service.checkTransactionRisk(validDto, mockToken);
+      expect(httpServiceMock.get).toHaveBeenCalledWith(
+        expect.stringContaining(`/v1/accounts/${validIban}`),
+        expect.anything(),
+      );
+      expect(accountViewModelMock.updateOne).toHaveBeenCalled();
+      expect(result).toBe(false);
+    });
+
+    // TEST AMOUNT ALTO (> 2000)
     it('should BLOCK immediately if amount > 2000 (Rule 1)', async () => {
       const riskyDto = { ...validDto, amount: 2500 }; // 2500 > 2000
 
@@ -138,7 +174,7 @@ describe('AntiFraudService', () => {
       );
     });
 
-    // TEST 2: REGLA PATRÓN (> 1000 REPETIDO)
+    // TEST: VARIAS TRANSACCIONES CON AMOUNT DE MAS DE 1000 (> 1000 REPETIDO)
     it('should BLOCK if pattern detected (amount > 1000 repeated >= 2 times)', async () => {
       const normalDto = { ...validDto, amount: 1200 }; // 1200 < 2000 (Pasa regla 1)
 
@@ -163,14 +199,12 @@ describe('AntiFraudService', () => {
       fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({
         exec: jest.fn().mockResolvedValue({}),
       });
-
       const result = await service.checkTransactionRisk(normalDto, mockToken);
-
-      expect(result).toBe(true); // True porque count (2) >= 2
+      expect(result).toBe(true);
       expect(httpServiceMock.patch).toHaveBeenCalled();
     });
 
-    // TEST 3: TRANSACCIÓN SEGURA
+    // TEST: TRANSACCIÓN SEGURA
     it('should APPROVE if amount <= 2000 and no risky history', async () => {
       const safeDto = { ...validDto, amount: 500 };
 
