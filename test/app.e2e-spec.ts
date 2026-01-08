@@ -89,7 +89,7 @@ describe('AntiFraudController (e2e)', () => {
       status: 'active',
     });
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-    return request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post('/v1/antifraud/transaction-check')
       .set('Authorization', mockToken)
       .send({
@@ -103,6 +103,8 @@ describe('AntiFraudController (e2e)', () => {
         const body = res.body as TransactionResponse;
         expect(body.message).toBe('No risk detected');
       });
+    const alertsCount = await alertModel.countDocuments();
+    expect(alertsCount).toBe(0);
   });
 
   // --- TEST 2: REGLA 1 - Immediate Block (> 2000) ---

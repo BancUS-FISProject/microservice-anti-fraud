@@ -177,30 +177,13 @@ describe('AntiFraudService', () => {
       accountViewModelMock.findOne.mockReturnValue({
         exec: jest.fn().mockResolvedValue({ iban: validIban }),
       });
-
-      // Historial limpio
       cacheManagerMock.get.mockResolvedValue([]);
       httpServiceMock.get.mockReturnValue(of({ data: [] }));
-
-      fraudAlertModelMock.create.mockResolvedValue({ _id: '1', ...safeDto });
-
-      // Mock updateAlert (para ponerlo en REVIEWED)
-      fraudAlertModelMock.findById.mockReturnValue({
-        exec: jest.fn().mockResolvedValue({ _id: '1', origin: validIban }),
-      });
-      fraudAlertModelMock.findByIdAndUpdate.mockReturnValue({
-        exec: jest.fn().mockResolvedValue({}),
-      });
-
       const result = await service.checkTransactionRisk(safeDto, mockToken);
-
-      expect(result).toBe(false); // False (Seguro)
-      // Debe actualizar a REVIEWED
-      expect(fraudAlertModelMock.findByIdAndUpdate).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ status: 'REVIEWED' }),
-        expect.anything(),
-      );
+      expect(result).toBe(false); // False (Safe transaction)
+      // Aseguramos que no se ha creado ni actualizado ninguna alerta
+      expect(fraudAlertModelMock.create).not.toHaveBeenCalled();
+      expect(fraudAlertModelMock.findByIdAndUpdate).not.toHaveBeenCalled();
     });
   });
 

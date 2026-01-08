@@ -116,12 +116,6 @@ export class AntiFraudService {
         `Origin account ${data.origin} is not a valid account in our system.`,
       );
     }
-    // 2. Initial alert created.
-    const initialAlert = await this.createAlert(
-      data,
-      `Suspicious transaction detected: high money amount transferred.`,
-    );
-    const alertId = initialAlert ? initialAlert._id.toString() : null;
 
     try {
       // RULE 1: Inmediate detection (> 2000 transaction will automatically block the account)
@@ -129,11 +123,16 @@ export class AntiFraudService {
         this.logger.log(
           `High amount detected (>2000€). Investigating history for account ${data.origin}`,
         );
+        const initialAlert = await this.createAlert(
+          data,
+          `Fraud detected: high money amount transferred.`,
+        );
+        const alertId = initialAlert ? initialAlert._id.toString() : null;
         await this.performFraudBlock(
           alertId,
           data.origin,
-          `Suspicious transaction detected: high money amount transferred.`,
-          ` Account blocked: Suspicious transaction detected: high money amount transferred.`,
+          `Fraud detected: high money amount transferred.`,
+          `Account blocked. Fraudulent transaction detected: high money amount transferred.`,
           token,
         );
         return true;
@@ -148,8 +147,13 @@ export class AntiFraudService {
       this.logger.log(`Found ${count} previous high-value transactions.`);
       if (count >= 2) {
         this.logger.log(
-          `REPEATED TRANSFERS WITH HIGH VALUE DETECTED (${count} times). Blocking account.`,
+          `Repeated transfers with high amount detected (${count} times). Blocking account.`,
         );
+        const initialAlert = await this.createAlert(
+          data,
+          `Fraud detected: Repeated transfers with high amount.`,
+        );
+        const alertId = initialAlert ? initialAlert._id.toString() : null;
         const reasonString = `Several recent high amount transactions detected: ${count + 1} times in last ${monthsLookback} months.`;
         const notificationString = ` Account blocked: several recent high amount transactions detected: ${count + 1} times in last ${monthsLookback} months.`;
         await this.performFraudBlock(
@@ -162,7 +166,6 @@ export class AntiFraudService {
         return true;
       }
       // RESULT: Safe transaction
-      await this.finalizeSafeAnalysis(alertId, token);
       return false;
     } catch (error) {
       const errMessage =
@@ -170,17 +173,10 @@ export class AntiFraudService {
       this.logger.error(
         `Failed to fetch history during check. Error: ${errMessage}`,
       );
-      if (alertId) {
-        // Tu texto de error original
-        await this.updateAlert(
-          alertId,
-          {
-            reason: `High transaction amount detected and unable to retrieve previous records. Error: ${errMessage}`,
-            status: AlertStatus.REVIEWED,
-          },
-          token,
-        );
-      }
+      await this.createAlert(
+        data,
+        `Analisys error: Unable to complete fraud check.`,
+      );
       throw new InternalServerErrorException(
         'Could not verify transaction history',
       );
@@ -253,22 +249,6 @@ export class AntiFraudService {
     return { count, monthsLookback: MONTHS_LOOKBACK };
   }
 
-  private async finalizeSafeAnalysis(
-    alertId: string | null,
-    token: string,
-  ): Promise<void> {
-    if (alertId) {
-      await this.updateAlert(
-        alertId,
-        {
-          status: AlertStatus.REVIEWED,
-          reason: 'Risk analysis passed.',
-        },
-        token,
-      );
-    }
-  }
-
   private async syncMaterializedView(token: string): Promise<void> {
     const accountsServiceUrl =
       this.configService.get<string>('ACCOUNTS_MS_URL') ||
@@ -327,9 +307,9 @@ export class AntiFraudService {
       );
       const transactions = response.data;
 
-      // Save the data in caché with a ttl of 24 hours.
-      //const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-      const ONE_MINUTE_MS = 60 * 1000;
+      // We will save the data in caché with a ttl of 30 seconds for demo purposes
+      // for one day, the ttl should take this value: 24 * 60 * 60 * 1000;
+      const ONE_MINUTE_MS = 30 * 1000;
       await this.cacheManager.set(cacheKey, transactions, ONE_MINUTE_MS);
       return transactions;
     } catch (error) {
