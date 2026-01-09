@@ -22,6 +22,15 @@ async function bootstrap() {
     .setDescription('API for banking fraud detection and reporting')
     .setVersion('1.0')
     .addTag('Anti-Fraud')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        in: 'header',
+      },
+      'access-token',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config, {

@@ -22,9 +22,11 @@ import {
   ApiBody,
   ApiBadRequestResponse,
   ApiNotFoundResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 
 @ApiTags('Anti-Fraud')
+@ApiBearerAuth('access-token')
 @Controller('v1/antifraud')
 export class AntiFraudController {
   constructor(private readonly antiFraudService: AntiFraudService) {}
